@@ -426,6 +426,193 @@ defmodule Depot do
   end
 
   @doc """
+  Get file or directory metadata (stat information)
+
+  Returns detailed metadata about a file or directory including size, modification time, and visibility.
+
+  ## Examples
+
+  ### Direct filesystem
+
+      filesystem = Depot.Adapter.Local.configure(prefix: "/home/user/storage")
+      {:ok, %Depot.Stat.File{}} = Depot.stat(filesystem, "test.txt")
+
+  ### Module-based filesystem
+
+      defmodule LocalFileSystem do
+        use Depot.Filesystem,
+          adapter: Depot.Adapter.Local,
+          prefix: "/home/user/storage"
+      end
+
+      {:ok, %Depot.Stat.File{}} = LocalFileSystem.stat("test.txt")
+
+  """
+  @spec stat(filesystem, Path.t()) :: {:ok, %Depot.Stat.File{} | %Depot.Stat.Dir{}} | {:error, term}
+  def stat({adapter, config}, path) do
+    if function_exported?(adapter, :stat, 2) do
+      with {:ok, normalized_path} <- Depot.RelativePath.normalize(path) do
+        adapter.stat(config, normalized_path)
+      else
+        {:error, reason} -> {:error, convert_path_error(reason, path)}
+      end
+    else
+      {:error, :unsupported}
+    end
+  end
+
+  @doc """
+  Check file access permissions
+
+  Checks whether the given file or directory can be accessed with the specified modes.
+
+  ## Modes
+
+    * `:read` - Check read access
+    * `:write` - Check write access
+
+  ## Examples
+
+  ### Direct filesystem
+
+      filesystem = Depot.Adapter.Local.configure(prefix: "/home/user/storage")
+      :ok = Depot.access(filesystem, "test.txt", [:read, :write])
+
+  ### Module-based filesystem
+
+      defmodule LocalFileSystem do
+        use Depot.Filesystem,
+          adapter: Depot.Adapter.Local,
+          prefix: "/home/user/storage"
+      end
+
+      :ok = LocalFileSystem.access("test.txt", [:read])
+
+  """
+  @spec access(filesystem, Path.t(), [:read | :write]) :: :ok | {:error, term}
+  def access({adapter, config}, path, modes) do
+    if function_exported?(adapter, :access, 3) do
+      with {:ok, normalized_path} <- Depot.RelativePath.normalize(path) do
+        adapter.access(config, normalized_path, modes)
+      else
+        {:error, reason} -> {:error, convert_path_error(reason, path)}
+      end
+    else
+      {:error, :unsupported}
+    end
+  end
+
+  @doc """
+  Append content to a file
+
+  If the file exists, the content is appended to the end. If it doesn't exist, 
+  a new file is created with the given content.
+
+  ## Examples
+
+  ### Direct filesystem
+
+      filesystem = Depot.Adapter.Local.configure(prefix: "/home/user/storage")
+      :ok = Depot.append(filesystem, "test.txt", "Additional content")
+
+  ### Module-based filesystem
+
+      defmodule LocalFileSystem do
+        use Depot.Filesystem,
+          adapter: Depot.Adapter.Local,
+          prefix: "/home/user/storage"
+      end
+
+      :ok = LocalFileSystem.append("test.txt", "More data")
+
+  """
+  @spec append(filesystem, Path.t(), iodata(), keyword()) :: :ok | {:error, term}
+  def append({adapter, config}, path, contents, opts \\ []) do
+    if function_exported?(adapter, :append, 4) do
+      with {:ok, normalized_path} <- Depot.RelativePath.normalize(path) do
+        adapter.append(config, normalized_path, contents, opts)
+      else
+        {:error, reason} -> {:error, convert_path_error(reason, path)}
+      end
+    else
+      {:error, :unsupported}
+    end
+  end
+
+  @doc """
+  Truncate a file to a specific size
+
+  Resizes the file to the specified number of bytes. If the new size is larger than 
+  the current size, the file is padded with null bytes. If smaller, the file is truncated.
+
+  ## Examples
+
+  ### Direct filesystem
+
+      filesystem = Depot.Adapter.Local.configure(prefix: "/home/user/storage")
+      :ok = Depot.truncate(filesystem, "test.txt", 100)
+
+  ### Module-based filesystem
+
+      defmodule LocalFileSystem do
+        use Depot.Filesystem,
+          adapter: Depot.Adapter.Local,
+          prefix: "/home/user/storage"
+      end
+
+      :ok = LocalFileSystem.truncate("test.txt", 0)  # Empty the file
+
+  """
+  @spec truncate(filesystem, Path.t(), non_neg_integer()) :: :ok | {:error, term}
+  def truncate({adapter, config}, path, new_size) do
+    if function_exported?(adapter, :truncate, 3) do
+      with {:ok, normalized_path} <- Depot.RelativePath.normalize(path) do
+        adapter.truncate(config, normalized_path, new_size)
+      else
+        {:error, reason} -> {:error, convert_path_error(reason, path)}
+      end
+    else
+      {:error, :unsupported}
+    end
+  end
+
+  @doc """
+  Update file modification time
+
+  Changes the modification time of a file or directory.
+
+  ## Examples
+
+  ### Direct filesystem
+
+      filesystem = Depot.Adapter.Local.configure(prefix: "/home/user/storage")
+      :ok = Depot.utime(filesystem, "test.txt", DateTime.utc_now())
+
+  ### Module-based filesystem
+
+      defmodule LocalFileSystem do
+        use Depot.Filesystem,
+          adapter: Depot.Adapter.Local,
+          prefix: "/home/user/storage"
+      end
+
+      :ok = LocalFileSystem.utime("test.txt", ~U[2023-01-01 00:00:00Z])
+
+  """
+  @spec utime(filesystem, Path.t(), DateTime.t()) :: :ok | {:error, term}
+  def utime({adapter, config}, path, mtime) do
+    if function_exported?(adapter, :utime, 3) do
+      with {:ok, normalized_path} <- Depot.RelativePath.normalize(path) do
+        adapter.utime(config, normalized_path, mtime)
+      else
+        {:error, reason} -> {:error, convert_path_error(reason, path)}
+      end
+    else
+      {:error, :unsupported}
+    end
+  end
+
+  @doc """
   Copy a file from one filesystem to the other
 
   This can either be done natively if the same adapter is used for both filesystems

@@ -438,6 +438,122 @@ defmodule Depot.Adapter.InMemory do
     end)
   end
 
+  # Extended filesystem operations
+
+  @impl Depot.Adapter
+  def stat(%Config{} = config, path) do
+    Agent.get(Depot.Registry.via(__MODULE__, config.name), fn state ->
+      case get_in(state, accessor(path)) do
+        {binary, meta} when is_binary(binary) ->
+          {:ok, %Depot.Stat.File{
+            name: Path.basename(path),
+            size: byte_size(binary),
+            mtime: Map.get(meta, :mtime, 0),
+            visibility: meta.visibility
+          }}
+        
+        {%{}, meta} ->
+          {:ok, %Depot.Stat.Dir{
+            name: Path.basename(path),
+            size: 0,
+            mtime: Map.get(meta, :mtime, 0),
+            visibility: meta.visibility
+          }}
+        
+        _ ->
+          {:error, Errors.FileNotFound.exception(file_path: path)}
+      end
+    end)
+  end
+
+  @impl Depot.Adapter
+  def access(%Config{} = config, path, modes) do
+    Agent.get(Depot.Registry.via(__MODULE__, config.name), fn state ->
+      case get_in(state, accessor(path)) do
+        {_, meta} ->
+          # InMemory adapter supports all access modes
+          # Could check visibility for :read/:write permissions if needed
+          case {Enum.member?(modes, :read), Enum.member?(modes, :write), meta.visibility} do
+            {true, false, _} -> :ok  # read access always allowed
+            {false, true, _} -> :ok  # write access always allowed  
+            {true, true, _} -> :ok   # read-write access always allowed
+            _ -> :ok
+          end
+        
+        _ ->
+          {:error, Errors.FileNotFound.exception(file_path: path)}
+      end
+    end)
+  end
+
+  @impl Depot.Adapter
+  def append(%Config{} = config, path, contents, opts) do
+    visibility = Keyword.get(opts, :visibility, :private)
+    directory_visibility = Keyword.get(opts, :directory_visibility, :private)
+    
+    Agent.get_and_update(Depot.Registry.via(__MODULE__, config.name), fn state ->
+      case get_in(state, accessor(path)) do
+        {existing_binary, _meta} when is_binary(existing_binary) ->
+          # File exists, append to it
+          new_contents = existing_binary <> IO.iodata_to_binary(contents)
+          file = {new_contents, %{visibility: visibility, mtime: System.system_time(:second)}}
+          {:ok, put_in(state, accessor(path), file)}
+        
+        _ ->
+          # File doesn't exist, create it with the contents
+          file = {IO.iodata_to_binary(contents), %{visibility: visibility, mtime: System.system_time(:second)}}
+          directory = {%{}, %{visibility: directory_visibility}}
+          {:ok, put_in(state, accessor(path, directory), file)}
+      end
+    end)
+  end
+
+  @impl Depot.Adapter
+  def truncate(%Config{} = config, path, new_size) do
+    Agent.get_and_update(Depot.Registry.via(__MODULE__, config.name), fn state ->
+      case get_in(state, accessor(path)) do
+        {binary, meta} when is_binary(binary) ->
+          current_size = byte_size(binary)
+          new_binary = 
+            cond do
+              new_size >= current_size ->
+                # Pad with zeros if growing
+                binary <> :binary.copy(<<0>>, new_size - current_size)
+              new_size == 0 ->
+                # Truncate to empty
+                ""
+              true ->
+                # Truncate to smaller size
+                binary_part(binary, 0, new_size)
+            end
+          
+          updated_meta = Map.put(meta, :mtime, System.system_time(:second))
+          file = {new_binary, updated_meta}
+          {:ok, put_in(state, accessor(path), file)}
+        
+        _ ->
+          {{:error, Errors.FileNotFound.exception(file_path: path)}, state}
+      end
+    end)
+  end
+
+  @impl Depot.Adapter
+  def utime(%Config{} = config, path, mtime) do
+    mtime_seconds = DateTime.to_unix(mtime, :second)
+    
+    Agent.get_and_update(Depot.Registry.via(__MODULE__, config.name), fn state ->
+      case get_in(state, accessor(path)) do
+        {contents, meta} ->
+          updated_meta = Map.put(meta, :mtime, mtime_seconds)
+          updated_entry = {contents, updated_meta}
+          {:ok, put_in(state, accessor(path), updated_entry)}
+        
+        _ ->
+          {{:error, Errors.FileNotFound.exception(file_path: path)}, state}
+      end
+    end)
+  end
+
   defp generate_version_id do
     :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower)
   end

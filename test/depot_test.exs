@@ -721,4 +721,77 @@ defmodule DepotTest do
       assert {:ok, "Hello World"} = Depot.read(filesystem_b, "test.txt")
     end
   end
+
+  describe "extended filesystem operations" do
+    test "stat/2 works with high-level API", %{test: test} do
+      filesystem = Depot.Adapter.InMemory.configure(name: test)
+      start_supervised(filesystem)
+
+      content = "Hello World"
+      :ok = Depot.write(filesystem, "test.txt", content)
+
+      assert {:ok, %Depot.Stat.File{} = stat} = Depot.stat(filesystem, "test.txt")
+      assert stat.name == "test.txt"
+      assert stat.size == byte_size(content)
+    end
+
+    test "stat/2 returns unsupported for adapters without implementation", %{test: _test} do
+      # Use a mock adapter that doesn't implement stat
+      assert {:error, :unsupported} = Depot.stat({NonExistentAdapter, %{}}, "test.txt")
+    end
+
+    test "access/3 works with high-level API", %{test: test} do
+      filesystem = Depot.Adapter.InMemory.configure(name: test)
+      start_supervised(filesystem)
+
+      :ok = Depot.write(filesystem, "test.txt", "content")
+      assert :ok = Depot.access(filesystem, "test.txt", [:read])
+    end
+
+    test "append/4 works with high-level API", %{test: test} do
+      filesystem = Depot.Adapter.InMemory.configure(name: test)
+      start_supervised(filesystem)
+
+      :ok = Depot.write(filesystem, "test.txt", "Hello")
+      :ok = Depot.append(filesystem, "test.txt", " World")
+
+      assert {:ok, "Hello World"} = Depot.read(filesystem, "test.txt")
+    end
+
+    test "truncate/3 works with high-level API", %{test: test} do
+      filesystem = Depot.Adapter.InMemory.configure(name: test)
+      start_supervised(filesystem)
+
+      :ok = Depot.write(filesystem, "test.txt", "Hello World")
+      :ok = Depot.truncate(filesystem, "test.txt", 5)
+
+      assert {:ok, "Hello"} = Depot.read(filesystem, "test.txt")
+    end
+
+    test "utime/3 works with high-level API", %{test: test} do
+      filesystem = Depot.Adapter.InMemory.configure(name: test)
+      start_supervised(filesystem)
+
+      :ok = Depot.write(filesystem, "test.txt", "content")
+      new_time = ~U[2023-01-01 12:00:00Z]
+      :ok = Depot.utime(filesystem, "test.txt", new_time)
+
+      assert {:ok, %Depot.Stat.File{mtime: mtime}} = Depot.stat(filesystem, "test.txt")
+      assert mtime == DateTime.to_unix(new_time, :second)
+    end
+
+    test "extended operations handle path normalization errors", %{test: test} do
+      filesystem = Depot.Adapter.InMemory.configure(name: test)
+      start_supervised(filesystem)
+
+      # Test with invalid paths that should trigger path normalization errors
+      invalid_path = "../outside"
+      
+      assert {:error, %Depot.Errors.PathTraversal{}} = Depot.stat(filesystem, invalid_path)
+      assert {:error, %Depot.Errors.PathTraversal{}} = Depot.access(filesystem, invalid_path, [:read])
+      assert {:error, %Depot.Errors.PathTraversal{}} = Depot.append(filesystem, invalid_path, "content")
+      assert {:error, %Depot.Errors.PathTraversal{}} = Depot.truncate(filesystem, invalid_path, 10)
+      assert {:error, %Depot.Errors.PathTraversal{}} = Depot.utime(filesystem, invalid_path, DateTime.utc_now())
+    end
+  end
 end

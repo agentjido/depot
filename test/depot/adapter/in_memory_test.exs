@@ -325,6 +325,135 @@ defmodule Depot.Adapter.InMemoryTest do
     end
   end
 
+  describe "extended filesystem operations" do
+    test "stat/2 returns file metadata", %{test: test} do
+      filesystem = Depot.Adapter.InMemory.configure(name: test)
+      start_supervised(filesystem)
+
+      content = "Hello World"
+      :ok = Depot.write(filesystem, "test.txt", content)
+
+      assert {:ok, %Depot.Stat.File{} = stat} = Depot.Adapter.InMemory.stat(elem(filesystem, 1), "test.txt")
+      assert stat.name == "test.txt"
+      assert stat.size == byte_size(content)
+      assert is_integer(stat.mtime)
+      assert stat.visibility == :private
+    end
+
+    test "stat/2 returns directory metadata", %{test: test} do
+      filesystem = Depot.Adapter.InMemory.configure(name: test)
+      start_supervised(filesystem)
+
+      :ok = Depot.create_directory(filesystem, "test/")
+
+      assert {:ok, %Depot.Stat.Dir{} = stat} = Depot.Adapter.InMemory.stat(elem(filesystem, 1), "test/")
+      assert stat.name == "test"
+      assert stat.size == 0
+      assert is_integer(stat.mtime)
+      assert stat.visibility == :private
+    end
+
+    test "stat/2 returns error for non-existent path", %{test: test} do
+      filesystem = Depot.Adapter.InMemory.configure(name: test)
+      start_supervised(filesystem)
+
+      assert {:error, %Depot.Errors.FileNotFound{}} = Depot.Adapter.InMemory.stat(elem(filesystem, 1), "missing.txt")
+    end
+
+    test "access/3 checks file permissions", %{test: test} do
+      filesystem = Depot.Adapter.InMemory.configure(name: test)
+      start_supervised(filesystem)
+
+      :ok = Depot.write(filesystem, "test.txt", "content")
+
+      assert :ok = Depot.Adapter.InMemory.access(elem(filesystem, 1), "test.txt", [:read])
+      assert :ok = Depot.Adapter.InMemory.access(elem(filesystem, 1), "test.txt", [:write])
+      assert :ok = Depot.Adapter.InMemory.access(elem(filesystem, 1), "test.txt", [:read, :write])
+    end
+
+    test "access/3 returns error for non-existent file", %{test: test} do
+      filesystem = Depot.Adapter.InMemory.configure(name: test)
+      start_supervised(filesystem)
+
+      assert {:error, %Depot.Errors.FileNotFound{}} = Depot.Adapter.InMemory.access(elem(filesystem, 1), "missing.txt", [:read])
+    end
+
+    test "append/4 appends to existing file", %{test: test} do
+      filesystem = Depot.Adapter.InMemory.configure(name: test)
+      start_supervised(filesystem)
+
+      :ok = Depot.write(filesystem, "test.txt", "Hello")
+      :ok = Depot.Adapter.InMemory.append(elem(filesystem, 1), "test.txt", " World", [])
+
+      assert {:ok, "Hello World"} = Depot.read(filesystem, "test.txt")
+    end
+
+    test "append/4 creates file if it doesn't exist", %{test: test} do
+      filesystem = Depot.Adapter.InMemory.configure(name: test)
+      start_supervised(filesystem)
+
+      :ok = Depot.Adapter.InMemory.append(elem(filesystem, 1), "new.txt", "New content", [])
+
+      assert {:ok, "New content"} = Depot.read(filesystem, "new.txt")
+    end
+
+    test "truncate/3 shrinks file", %{test: test} do
+      filesystem = Depot.Adapter.InMemory.configure(name: test)
+      start_supervised(filesystem)
+
+      :ok = Depot.write(filesystem, "test.txt", "Hello World")
+      :ok = Depot.Adapter.InMemory.truncate(elem(filesystem, 1), "test.txt", 5)
+
+      assert {:ok, "Hello"} = Depot.read(filesystem, "test.txt")
+    end
+
+    test "truncate/3 grows file with null bytes", %{test: test} do
+      filesystem = Depot.Adapter.InMemory.configure(name: test)
+      start_supervised(filesystem)
+
+      :ok = Depot.write(filesystem, "test.txt", "Hi")
+      :ok = Depot.Adapter.InMemory.truncate(elem(filesystem, 1), "test.txt", 5)
+
+      assert {:ok, "Hi\0\0\0"} = Depot.read(filesystem, "test.txt")
+    end
+
+    test "truncate/3 empties file when size is 0", %{test: test} do
+      filesystem = Depot.Adapter.InMemory.configure(name: test)
+      start_supervised(filesystem)
+
+      :ok = Depot.write(filesystem, "test.txt", "Hello World")
+      :ok = Depot.Adapter.InMemory.truncate(elem(filesystem, 1), "test.txt", 0)
+
+      assert {:ok, ""} = Depot.read(filesystem, "test.txt")
+    end
+
+    test "truncate/3 returns error for non-existent file", %{test: test} do
+      filesystem = Depot.Adapter.InMemory.configure(name: test)
+      start_supervised(filesystem)
+
+      assert {:error, %Depot.Errors.FileNotFound{}} = Depot.Adapter.InMemory.truncate(elem(filesystem, 1), "missing.txt", 10)
+    end
+
+    test "utime/3 updates modification time", %{test: test} do
+      filesystem = Depot.Adapter.InMemory.configure(name: test)
+      start_supervised(filesystem)
+
+      :ok = Depot.write(filesystem, "test.txt", "content")
+      new_time = ~U[2023-01-01 12:00:00Z]
+      :ok = Depot.Adapter.InMemory.utime(elem(filesystem, 1), "test.txt", new_time)
+
+      assert {:ok, %Depot.Stat.File{mtime: mtime}} = Depot.Adapter.InMemory.stat(elem(filesystem, 1), "test.txt")
+      assert mtime == DateTime.to_unix(new_time, :second)
+    end
+
+    test "utime/3 returns error for non-existent file", %{test: test} do
+      filesystem = Depot.Adapter.InMemory.configure(name: test)
+      start_supervised(filesystem)
+
+      assert {:error, %Depot.Errors.FileNotFound{}} = Depot.Adapter.InMemory.utime(elem(filesystem, 1), "missing.txt", DateTime.utc_now())
+    end
+  end
+
   defp via(name) do
     Depot.Registry.via(Depot.Adapter.InMemory, name)
   end

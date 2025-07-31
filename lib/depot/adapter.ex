@@ -33,6 +33,20 @@ defmodule Depot.Adapter do
   @callback set_visibility(config, path, Depot.Visibility.t()) :: :ok | {:error, term}
   @callback visibility(config, path) :: {:ok, Depot.Visibility.t()} | {:error, term}
 
+  # Extended filesystem operations (optional - adapters can choose to implement these)
+  @optional_callbacks stat: 2,
+                      access: 3,
+                      append: 4,
+                      truncate: 3,
+                      utime: 3
+
+  @callback stat(config, path) ::
+              {:ok, %Depot.Stat.File{} | %Depot.Stat.Dir{}} | {:error, term}
+  @callback access(config, path, modes :: [:read | :write]) :: :ok | {:error, term}
+  @callback append(config, path, contents :: iodata(), write_opts) :: :ok | {:error, term}
+  @callback truncate(config, path, new_size :: non_neg_integer()) :: :ok | {:error, term}
+  @callback utime(config, path, mtime :: DateTime.t()) :: :ok | {:error, term}
+
   # Versioning callbacks (optional - adapters can choose to implement these)
   @optional_callbacks write_version: 4,
                       read_version: 3,
