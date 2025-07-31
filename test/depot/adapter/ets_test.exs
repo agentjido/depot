@@ -53,7 +53,8 @@ defmodule Depot.Adapter.ETSTest do
     test "file not found", %{filesystem: filesystem} do
       {_, config} = filesystem
 
-      assert {:error, :enoent} = Depot.Adapter.ETS.read(config, "nonexistent.txt")
+      assert {:error, %Depot.Errors.FileNotFound{file_path: "nonexistent.txt"}} =
+               Depot.Adapter.ETS.read(config, "nonexistent.txt")
     end
   end
 
@@ -63,7 +64,9 @@ defmodule Depot.Adapter.ETSTest do
 
       :ok = Depot.Adapter.ETS.write(config, "test.txt", "Hello World", [])
       assert :ok = Depot.Adapter.ETS.delete(config, "test.txt")
-      assert {:error, :enoent} = Depot.Adapter.ETS.read(config, "test.txt")
+
+      assert {:error, %Depot.Errors.FileNotFound{file_path: "test.txt"}} =
+               Depot.Adapter.ETS.read(config, "test.txt")
     end
 
     test "successful even if no file to delete", %{filesystem: filesystem} do
@@ -79,7 +82,10 @@ defmodule Depot.Adapter.ETSTest do
 
       :ok = Depot.Adapter.ETS.write(config, "source.txt", "Hello World", [])
       assert :ok = Depot.Adapter.ETS.move(config, "source.txt", "destination.txt", [])
-      assert {:error, :enoent} = Depot.Adapter.ETS.read(config, "source.txt")
+
+      assert {:error, %Depot.Errors.FileNotFound{file_path: "source.txt"}} =
+               Depot.Adapter.ETS.read(config, "source.txt")
+
       assert {:ok, "Hello World"} = Depot.Adapter.ETS.read(config, "destination.txt")
     end
   end
@@ -259,7 +265,8 @@ defmodule Depot.Adapter.ETSTest do
       {:ok, _new_pid} = Depot.Adapter.ETS.start_link(regular_filesystem)
 
       # Data should be gone (regular ETS table died with process)
-      assert {:error, :enoent} = Depot.Adapter.ETS.read(config, "temporary.txt")
+      assert {:error, %Depot.Errors.FileNotFound{file_path: "temporary.txt"}} =
+               Depot.Adapter.ETS.read(config, "temporary.txt")
     end
 
     test "eternal configuration defaults to false" do

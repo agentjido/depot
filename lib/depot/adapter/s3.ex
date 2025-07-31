@@ -36,6 +36,8 @@ defmodule Depot.Adapter.S3 do
       {:ok, "Hello World"} = S3FileSystem.read("test.txt")
   """
 
+  alias Depot.Errors
+
   defmodule Config do
     @moduledoc false
     defstruct config: nil, bucket: nil, prefix: nil
@@ -58,7 +60,7 @@ defmodule Depot.Adapter.S3 do
             etag
 
           error ->
-            throw({:upload_part_failed, error})
+            throw({:upload_part_failed, %Errors.AdapterError{adapter: __MODULE__, reason: error}})
         end
       end
 
@@ -171,8 +173,8 @@ defmodule Depot.Adapter.S3 do
       {:ok, _} ->
         :ok
 
-      error ->
-        error
+      {:error, error} ->
+        {:error, %Errors.AdapterError{adapter: __MODULE__, reason: error}}
     end
   end
 
@@ -199,10 +201,13 @@ defmodule Depot.Adapter.S3 do
         {:ok, body}
 
       {:error, {:http_error, 404, _}} ->
-        {:error, :enoent}
+        {:error, %Errors.FileNotFound{file_path: path}}
+
+      {:error, error} ->
+        {:error, %Errors.AdapterError{adapter: __MODULE__, reason: error}}
 
       error ->
-        error
+        {:error, %Errors.AdapterError{adapter: __MODULE__, reason: error}}
     end
   end
 
@@ -231,7 +236,7 @@ defmodule Depot.Adapter.S3 do
       {:ok, stream}
     else
       {:ok, :missing} ->
-        {:error, :enoent}
+        {:error, %Errors.FileNotFound{file_path: path}}
     end
   end
 
@@ -245,8 +250,8 @@ defmodule Depot.Adapter.S3 do
       {:ok, _} ->
         :ok
 
-      error ->
-        error
+      {:error, error} ->
+        {:error, %Errors.AdapterError{adapter: __MODULE__, reason: error}}
     end
   end
 
@@ -299,10 +304,10 @@ defmodule Depot.Adapter.S3 do
         :ok
 
       {:error, {:http_error, 404, _}} ->
-        {:error, :enoent}
+        {:error, %Errors.FileNotFound{file_path: source_path}}
 
-      error ->
-        error
+      {:error, error} ->
+        {:error, %Errors.AdapterError{adapter: __MODULE__, reason: error}}
     end
   end
 
@@ -319,8 +324,8 @@ defmodule Depot.Adapter.S3 do
       {:error, {:http_error, 404, _}} ->
         {:ok, :missing}
 
-      error ->
-        error
+      {:error, error} ->
+        {:error, %Errors.AdapterError{adapter: __MODULE__, reason: error}}
     end
   end
 
@@ -379,8 +384,11 @@ defmodule Depot.Adapter.S3 do
 
         {:ok, directories ++ files}
 
+      {:error, error} ->
+        {:error, %Errors.AdapterError{adapter: __MODULE__, reason: error}}
+
       error ->
-        error
+        {:error, %Errors.AdapterError{adapter: __MODULE__, reason: error}}
     end
   end
 
@@ -412,8 +420,8 @@ defmodule Depot.Adapter.S3 do
               {:error, {:http_error, 404, _}} ->
                 {:ok, :missing}
 
-              error ->
-                throw(error)
+              {:error, error} ->
+                throw(%Errors.AdapterError{adapter: __MODULE__, reason: error})
             end
           end,
           max_concurrency: 10
@@ -423,7 +431,7 @@ defmodule Depot.Adapter.S3 do
         :ok
       catch
         error ->
-          error
+          {:error, error}
       end
     else
       case list_contents(config, path) do
@@ -431,7 +439,7 @@ defmodule Depot.Adapter.S3 do
           delete(config, String.trim_trailing(path, "/"))
 
         {:ok, _} ->
-          {:error, :eexist}
+          {:error, %Errors.DirectoryNotEmpty{dir_path: path}}
 
         error ->
           error
@@ -454,8 +462,10 @@ defmodule Depot.Adapter.S3 do
             {:ok, _} ->
               {:ok, :deleted}
 
-            error ->
-              throw({:delete_failed, key, error})
+            {:error, error} ->
+              throw(
+                {:delete_failed, key, %Errors.AdapterError{adapter: __MODULE__, reason: error}}
+              )
           end
         end,
         max_concurrency: 10,
@@ -466,7 +476,7 @@ defmodule Depot.Adapter.S3 do
       :ok
     catch
       {:delete_failed, _key, error} ->
-        error
+        {:error, error}
     end
   end
 

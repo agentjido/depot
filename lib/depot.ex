@@ -5,8 +5,18 @@ defmodule Depot do
              |> String.split("<!-- MDOC !-->")
              |> Enum.fetch!(1)
 
+  alias Depot.Errors
+
   @type adapter :: module()
   @type filesystem :: {module(), Depot.Adapter.config()}
+
+  defp convert_path_error({:path, :traversal}, path),
+    do: Errors.PathTraversal.exception(attempted_path: path)
+
+  defp convert_path_error({:path, :absolute}, path),
+    do: Errors.AbsolutePath.exception(absolute_path: path)
+
+  defp convert_path_error(:enotdir, path), do: Errors.NotDirectory.exception(not_dir_path: path)
 
   @doc """
   Write to a filesystem
@@ -31,8 +41,10 @@ defmodule Depot do
   """
   @spec write(filesystem, Path.t(), iodata(), keyword()) :: :ok | {:error, term}
   def write({adapter, config}, path, contents, opts \\ []) do
-    with {:ok, path} <- Depot.RelativePath.normalize(path) do
-      adapter.write(config, path, contents, opts)
+    with {:ok, normalized_path} <- Depot.RelativePath.normalize(path) do
+      adapter.write(config, normalized_path, contents, opts)
+    else
+      {:error, reason} -> {:error, convert_path_error(reason, path)}
     end
   end
 
@@ -70,8 +82,10 @@ defmodule Depot do
 
   """
   def write_stream({adapter, config}, path, opts \\ []) do
-    with {:ok, path} <- Depot.RelativePath.normalize(path) do
-      adapter.write_stream(config, path, opts)
+    with {:ok, normalized_path} <- Depot.RelativePath.normalize(path) do
+      adapter.write_stream(config, normalized_path, opts)
+    else
+      {:error, reason} -> {:error, convert_path_error(reason, path)}
     end
   end
 
@@ -98,8 +112,10 @@ defmodule Depot do
   """
   @spec read(filesystem, Path.t(), keyword()) :: {:ok, binary} | {:error, term}
   def read({adapter, config}, path, _opts \\ []) do
-    with {:ok, path} <- Depot.RelativePath.normalize(path) do
-      adapter.read(config, path)
+    with {:ok, normalized_path} <- Depot.RelativePath.normalize(path) do
+      adapter.read(config, normalized_path)
+    else
+      {:error, reason} -> {:error, convert_path_error(reason, path)}
     end
   end
 
@@ -137,8 +153,10 @@ defmodule Depot do
 
   """
   def read_stream({adapter, config}, path, opts \\ []) do
-    with {:ok, path} <- Depot.RelativePath.normalize(path) do
-      adapter.read_stream(config, path, opts)
+    with {:ok, normalized_path} <- Depot.RelativePath.normalize(path) do
+      adapter.read_stream(config, normalized_path, opts)
+    else
+      {:error, reason} -> {:error, convert_path_error(reason, path)}
     end
   end
 
@@ -165,8 +183,10 @@ defmodule Depot do
   """
   @spec delete(filesystem, Path.t(), keyword()) :: :ok | {:error, term}
   def delete({adapter, config}, path, _opts \\ []) do
-    with {:ok, path} <- Depot.RelativePath.normalize(path) do
-      adapter.delete(config, path)
+    with {:ok, normalized_path} <- Depot.RelativePath.normalize(path) do
+      adapter.delete(config, normalized_path)
+    else
+      {:error, reason} -> {:error, convert_path_error(reason, path)}
     end
   end
 
@@ -193,9 +213,11 @@ defmodule Depot do
   """
   @spec move(filesystem, Path.t(), Path.t(), keyword()) :: :ok | {:error, term}
   def move({adapter, config}, source, destination, opts \\ []) do
-    with {:ok, source} <- Depot.RelativePath.normalize(source),
-         {:ok, destination} <- Depot.RelativePath.normalize(destination) do
-      adapter.move(config, source, destination, opts)
+    with {:ok, normalized_source} <- Depot.RelativePath.normalize(source),
+         {:ok, normalized_destination} <- Depot.RelativePath.normalize(destination) do
+      adapter.move(config, normalized_source, normalized_destination, opts)
+    else
+      {:error, reason} -> {:error, convert_path_error(reason, source)}
     end
   end
 
@@ -222,9 +244,11 @@ defmodule Depot do
   """
   @spec copy(filesystem, Path.t(), Path.t(), keyword()) :: :ok | {:error, term}
   def copy({adapter, config}, source, destination, opts \\ []) do
-    with {:ok, source} <- Depot.RelativePath.normalize(source),
-         {:ok, destination} <- Depot.RelativePath.normalize(destination) do
-      adapter.copy(config, source, destination, opts)
+    with {:ok, normalized_source} <- Depot.RelativePath.normalize(source),
+         {:ok, normalized_destination} <- Depot.RelativePath.normalize(destination) do
+      adapter.copy(config, normalized_source, normalized_destination, opts)
+    else
+      {:error, reason} -> {:error, convert_path_error(reason, source)}
     end
   end
 
@@ -251,8 +275,10 @@ defmodule Depot do
   """
   @spec file_exists(filesystem, Path.t(), keyword()) :: {:ok, :exists | :missing} | {:error, term}
   def file_exists({adapter, config}, path, _opts \\ []) do
-    with {:ok, path} <- Depot.RelativePath.normalize(path) do
-      adapter.file_exists(config, path)
+    with {:ok, normalized_path} <- Depot.RelativePath.normalize(path) do
+      adapter.file_exists(config, normalized_path)
+    else
+      {:error, reason} -> {:error, convert_path_error(reason, path)}
     end
   end
 
@@ -280,8 +306,10 @@ defmodule Depot do
   @spec list_contents(filesystem, Path.t(), keyword()) ::
           {:ok, [%Depot.Stat.Dir{} | %Depot.Stat.File{}]} | {:error, term}
   def list_contents({adapter, config}, path, _opts \\ []) do
-    with {:ok, path} <- Depot.RelativePath.normalize(path) do
-      adapter.list_contents(config, path)
+    with {:ok, normalized_path} <- Depot.RelativePath.normalize(path) do
+      adapter.list_contents(config, normalized_path)
+    else
+      {:error, reason} -> {:error, convert_path_error(reason, path)}
     end
   end
 
@@ -308,9 +336,11 @@ defmodule Depot do
   """
   @spec create_directory(filesystem, Path.t(), keyword()) :: :ok | {:error, term}
   def create_directory({adapter, config}, path, opts \\ []) do
-    with {:ok, path} <- Depot.RelativePath.normalize(path),
-         {:ok, path} <- Depot.RelativePath.assert_directory(path) do
-      adapter.create_directory(config, path, opts)
+    with {:ok, normalized_path} <- Depot.RelativePath.normalize(path),
+         {:ok, normalized_path} <- Depot.RelativePath.assert_directory(normalized_path) do
+      adapter.create_directory(config, normalized_path, opts)
+    else
+      {:error, reason} -> {:error, convert_path_error(reason, path)}
     end
   end
 
@@ -341,9 +371,11 @@ defmodule Depot do
   """
   @spec delete_directory(filesystem, Path.t(), keyword()) :: :ok | {:error, term}
   def delete_directory({adapter, config}, path, opts \\ []) do
-    with {:ok, path} <- Depot.RelativePath.normalize(path),
-         {:ok, path} <- Depot.RelativePath.assert_directory(path) do
-      adapter.delete_directory(config, path, opts)
+    with {:ok, normalized_path} <- Depot.RelativePath.normalize(path),
+         {:ok, normalized_path} <- Depot.RelativePath.assert_directory(normalized_path) do
+      adapter.delete_directory(config, normalized_path, opts)
+    else
+      {:error, reason} -> {:error, convert_path_error(reason, path)}
     end
   end
 
@@ -377,15 +409,19 @@ defmodule Depot do
 
   @spec set_visibility(filesystem, Path.t(), Depot.Visibility.t()) :: :ok | {:error, term}
   def set_visibility({adapter, config}, path, visibility) do
-    with {:ok, path} <- Depot.RelativePath.normalize(path) do
-      adapter.set_visibility(config, path, visibility)
+    with {:ok, normalized_path} <- Depot.RelativePath.normalize(path) do
+      adapter.set_visibility(config, normalized_path, visibility)
+    else
+      {:error, reason} -> {:error, convert_path_error(reason, path)}
     end
   end
 
   @spec visibility(filesystem, Path.t()) :: {:ok, Depot.Visibility.t()} | {:error, term}
   def visibility({adapter, config}, path) do
-    with {:ok, path} <- Depot.RelativePath.normalize(path) do
-      adapter.visibility(config, path)
+    with {:ok, normalized_path} <- Depot.RelativePath.normalize(path) do
+      adapter.visibility(config, normalized_path)
+    else
+      {:error, reason} -> {:error, convert_path_error(reason, path)}
     end
   end
 
@@ -447,7 +483,7 @@ defmodule Depot do
       :ok
     else
       {:error, :unsupported} -> copy_via_local_memory(source, destination, opts)
-      error -> error
+      {:error, reason} -> {:error, Errors.to_error(reason)}
     end
   end
 
@@ -488,7 +524,7 @@ defmodule Depot do
         end
     end
   rescue
-    e -> {:error, e}
+    e -> {:error, Errors.to_error(e)}
   end
 
   @doc false

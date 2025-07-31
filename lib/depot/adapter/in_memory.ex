@@ -22,6 +22,8 @@ defmodule Depot.Adapter.InMemory do
       {:ok, "Hello World"} = InMemoryFileSystem.read("test.txt")
   """
 
+  alias Depot.Errors
+
   defmodule AgentStream do
     @enforce_keys [:config, :path]
     defstruct config: nil, path: nil, chunk_size: 1024
@@ -131,7 +133,7 @@ defmodule Depot.Adapter.InMemory do
     Agent.get(Depot.Registry.via(__MODULE__, config.name), fn state ->
       case get_in(state, accessor(path)) do
         {binary, _meta} when is_binary(binary) -> {:ok, binary}
-        _ -> {:error, :enoent}
+        _ -> {:error, Errors.FileNotFound.exception(file_path: path)}
       end
     end)
   end
@@ -173,7 +175,7 @@ defmodule Depot.Adapter.InMemory do
           {:ok, state}
 
         _ ->
-          {{:error, :enoent}, state}
+          {{:error, Errors.FileNotFound.exception(file_path: source)}, state}
       end
     end)
   end
@@ -191,7 +193,7 @@ defmodule Depot.Adapter.InMemory do
           {:ok, put_in(state, accessor(destination, directory), file)}
 
         _ ->
-          {{:error, :enoent}, state}
+          {{:error, Errors.FileNotFound.exception(file_path: source)}, state}
       end
     end)
   end
@@ -265,7 +267,7 @@ defmodule Depot.Adapter.InMemory do
           {:ok, state}
 
         _ ->
-          {{:error, :eexist}, state}
+          {{:error, Errors.DirectoryNotEmpty.exception(dir_path: path)}, state}
       end
     end)
   end
@@ -288,7 +290,7 @@ defmodule Depot.Adapter.InMemory do
           {:ok, state}
 
         _ ->
-          {{:error, :enoent}, state}
+          {{:error, Errors.FileNotFound.exception(file_path: path)}, state}
       end
     end)
   end
@@ -298,7 +300,7 @@ defmodule Depot.Adapter.InMemory do
     Agent.get(Depot.Registry.via(__MODULE__, config.name), fn state ->
       case get_in(state, accessor(path)) do
         {_, %{visibility: visibility}} -> {:ok, visibility}
-        _ -> {:error, :enoent}
+        _ -> {:error, Errors.FileNotFound.exception(file_path: path)}
       end
     end)
   end

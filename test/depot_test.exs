@@ -382,17 +382,31 @@ defmodule DepotTest do
     end
 
     test "directory traversals are detected and reported", %{filesystem: filesystem} do
-      {:error, {:path, :traversal}} = Depot.write(filesystem, "../test.txt", "Hello World")
-      {:error, {:path, :traversal}} = Depot.read(filesystem, "../test.txt")
-      {:error, {:path, :traversal}} = Depot.delete(filesystem, "../test.txt")
-      {:error, {:path, :traversal}} = Depot.list_contents(filesystem, "../test")
+      assert {:error, %Depot.Errors.PathTraversal{attempted_path: "../test.txt"}} =
+               Depot.write(filesystem, "../test.txt", "Hello World")
+
+      assert {:error, %Depot.Errors.PathTraversal{attempted_path: "../test.txt"}} =
+               Depot.read(filesystem, "../test.txt")
+
+      assert {:error, %Depot.Errors.PathTraversal{attempted_path: "../test.txt"}} =
+               Depot.delete(filesystem, "../test.txt")
+
+      assert {:error, %Depot.Errors.PathTraversal{attempted_path: "../test"}} =
+               Depot.list_contents(filesystem, "../test")
     end
 
     test "relative paths are required", %{filesystem: filesystem} do
-      {:error, {:path, :absolute}} = Depot.write(filesystem, "/../test.txt", "Hello World")
-      {:error, {:path, :absolute}} = Depot.read(filesystem, "/../test.txt")
-      {:error, {:path, :absolute}} = Depot.delete(filesystem, "/../test.txt")
-      {:error, {:path, :absolute}} = Depot.list_contents(filesystem, "/../test")
+      assert {:error, %Depot.Errors.AbsolutePath{absolute_path: "/../test.txt"}} =
+               Depot.write(filesystem, "/../test.txt", "Hello World")
+
+      assert {:error, %Depot.Errors.AbsolutePath{absolute_path: "/../test.txt"}} =
+               Depot.read(filesystem, "/../test.txt")
+
+      assert {:error, %Depot.Errors.AbsolutePath{absolute_path: "/../test.txt"}} =
+               Depot.delete(filesystem, "/../test.txt")
+
+      assert {:error, %Depot.Errors.AbsolutePath{absolute_path: "/../test"}} =
+               Depot.list_contents(filesystem, "/../test")
     end
   end
 
@@ -482,13 +496,15 @@ defmodule DepotTest do
     test "write_stream with invalid path", %{tmp_dir: prefix} do
       filesystem = Depot.Adapter.Local.configure(prefix: prefix)
 
-      assert {:error, {:path, :traversal}} = Depot.write_stream(filesystem, "../invalid.txt")
+      assert {:error, %Depot.Errors.PathTraversal{attempted_path: "../invalid.txt"}} =
+               Depot.write_stream(filesystem, "../invalid.txt")
     end
 
     test "read_stream with invalid path", %{tmp_dir: prefix} do
       filesystem = Depot.Adapter.Local.configure(prefix: prefix)
 
-      assert {:error, {:path, :traversal}} = Depot.read_stream(filesystem, "../invalid.txt")
+      assert {:error, %Depot.Errors.PathTraversal{attempted_path: "../invalid.txt"}} =
+               Depot.read_stream(filesystem, "../invalid.txt")
     end
   end
 
@@ -530,13 +546,15 @@ defmodule DepotTest do
     test "create_directory with invalid path", %{tmp_dir: prefix} do
       filesystem = Depot.Adapter.Local.configure(prefix: prefix)
 
-      assert {:error, {:path, :traversal}} = Depot.create_directory(filesystem, "../invalid/")
+      assert {:error, %Depot.Errors.PathTraversal{attempted_path: "../invalid/"}} =
+               Depot.create_directory(filesystem, "../invalid/")
     end
 
     test "delete_directory with invalid path", %{tmp_dir: prefix} do
       filesystem = Depot.Adapter.Local.configure(prefix: prefix)
 
-      assert {:error, {:path, :traversal}} = Depot.delete_directory(filesystem, "../invalid/")
+      assert {:error, %Depot.Errors.PathTraversal{attempted_path: "../invalid/"}} =
+               Depot.delete_directory(filesystem, "../invalid/")
     end
   end
 
@@ -562,14 +580,15 @@ defmodule DepotTest do
     test "set_visibility with invalid path", %{tmp_dir: prefix} do
       filesystem = Depot.Adapter.Local.configure(prefix: prefix)
 
-      assert {:error, {:path, :traversal}} =
+      assert {:error, %Depot.Errors.PathTraversal{attempted_path: "../invalid.txt"}} =
                Depot.set_visibility(filesystem, "../invalid.txt", :public)
     end
 
     test "visibility with invalid path", %{tmp_dir: prefix} do
       filesystem = Depot.Adapter.Local.configure(prefix: prefix)
 
-      assert {:error, {:path, :traversal}} = Depot.visibility(filesystem, "../invalid.txt")
+      assert {:error, %Depot.Errors.PathTraversal{attempted_path: "../invalid.txt"}} =
+               Depot.visibility(filesystem, "../invalid.txt")
     end
   end
 

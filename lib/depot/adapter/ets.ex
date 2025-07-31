@@ -37,6 +37,8 @@ defmodule Depot.Adapter.ETS do
 
   use GenServer
 
+  alias Depot.Errors
+
   # Constants for default values and common options
   @default_visibility :private
   @default_chunk_size 1024
@@ -214,7 +216,7 @@ defmodule Depot.Adapter.ETS do
     reply =
       case lookup_file(table, path) do
         {:ok, binary} -> {:ok, binary}
-        :error -> {:error, :enoent}
+        :error -> {:error, Errors.FileNotFound.exception(file_path: path)}
       end
 
     {:reply, reply, state}
@@ -234,7 +236,7 @@ defmodule Depot.Adapter.ETS do
           {:ok, stream}
 
         :error ->
-          {:error, :enoent}
+          {:error, Errors.FileNotFound.exception(file_path: path)}
       end
 
     {:reply, reply, state}
@@ -256,7 +258,7 @@ defmodule Depot.Adapter.ETS do
           :ok
 
         :error ->
-          {:error, :enoent}
+          {:error, Errors.FileNotFound.exception(file_path: source)}
       end
 
     {:reply, reply, state}
@@ -371,7 +373,7 @@ defmodule Depot.Adapter.ETS do
           :ok
 
         :error ->
-          {:error, :enoent}
+          {:error, Errors.FileNotFound.exception(file_path: source)}
       end
 
     {:reply, reply, state}
@@ -470,10 +472,10 @@ defmodule Depot.Adapter.ETS do
 
     cond do
       not match?([{_, {%{}, _}}], :ets.lookup(table, path)) ->
-        {:error, :enoent}
+        {:error, Errors.DirectoryNotFound.exception(dir_path: path)}
 
       has_contents? and not recursive? ->
-        {:error, :eexist}
+        {:error, Errors.DirectoryNotEmpty.exception(dir_path: path)}
 
       true ->
         if recursive? do
@@ -518,7 +520,7 @@ defmodule Depot.Adapter.ETS do
         :ok
 
       [] ->
-        {:error, :enoent}
+        {:error, Errors.FileNotFound.exception(file_path: path)}
     end
   end
 
@@ -547,7 +549,7 @@ defmodule Depot.Adapter.ETS do
         if path in [".", ""] do
           {:ok, :public}
         else
-          {:error, :enoent}
+          {:error, Errors.FileNotFound.exception(file_path: path)}
         end
     end
   end

@@ -67,7 +67,7 @@ defmodule Depot.AdapterTest do
       end
 
       test "user can try to read a non-existing file from filesystem", %{filesystem: filesystem} do
-        assert {:error, :enoent} = Depot.read(filesystem, "test.txt")
+        assert {:error, %Depot.Errors.FileNotFound{}} = Depot.read(filesystem, "test.txt")
       end
 
       test "user can delete from filesystem", %{filesystem: filesystem} do
@@ -90,7 +90,8 @@ defmodule Depot.AdapterTest do
       end
 
       test "user can try to move a non-existing file", %{filesystem: filesystem} do
-        assert {:error, :enoent} = Depot.move(filesystem, "test.txt", "not-test.txt")
+        assert {:error, %Depot.Errors.FileNotFound{}} =
+                 Depot.move(filesystem, "test.txt", "not-test.txt")
       end
 
       test "user can copy files", %{filesystem: filesystem} do
@@ -102,7 +103,8 @@ defmodule Depot.AdapterTest do
       end
 
       test "user can try to copy a non-existing file", %{filesystem: filesystem} do
-        assert {:error, :enoent} = Depot.copy(filesystem, "test.txt", "not-test.txt")
+        assert {:error, %Depot.Errors.FileNotFound{}} =
+                 Depot.copy(filesystem, "test.txt", "not-test.txt")
       end
 
       test "user can list files and folders", %{filesystem: filesystem} do

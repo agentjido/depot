@@ -45,6 +45,7 @@ defmodule Depot.Adapter.Local do
   import Bitwise
   alias Depot.Visibility.UnixVisibilityConverter
   alias Depot.Visibility.PortableUnixVisibilityConverter, as: DefaultVisibilityConverter
+  alias Depot.Errors
 
   defmodule Config do
     @moduledoc false
@@ -101,12 +102,15 @@ defmodule Depot.Adapter.Local do
     line_or_bytes = opts[:chunk_size] || :line
     {:ok, File.stream!(full_path(config, path), modes, line_or_bytes)}
   rescue
-    e -> {:error, e}
+    e -> {:error, convert_exception_error(e, full_path(config, path))}
   end
 
   @impl Depot.Adapter
   def read(%Config{} = config, path) do
-    File.read(full_path(config, path))
+    case File.read(full_path(config, path)) do
+      {:ok, content} -> {:ok, content}
+      {:error, reason} -> {:error, convert_file_error(reason, full_path(config, path))}
+    end
   end
 
   @impl Depot.Adapter
@@ -115,12 +119,16 @@ defmodule Depot.Adapter.Local do
     line_or_bytes = opts[:chunk_size] || :line
     {:ok, File.stream!(full_path(config, path), modes, line_or_bytes)}
   rescue
-    e -> {:error, e}
+    e -> {:error, convert_exception_error(e, full_path(config, path))}
   end
 
   @impl Depot.Adapter
   def delete(%Config{} = config, path) do
-    with {:error, :enoent} <- File.rm(full_path(config, path)), do: :ok
+    case File.rm(full_path(config, path)) do
+      :ok -> :ok
+      {:error, :enoent} -> :ok
+      {:error, reason} -> {:error, convert_file_error(reason, full_path(config, path))}
+    end
   end
 
   @impl Depot.Adapter
@@ -128,8 +136,12 @@ defmodule Depot.Adapter.Local do
     source = full_path(config, source)
     destination = full_path(config, destination)
 
-    with :ok <- ensure_directory(config, Path.dirname(destination), opts) do
-      File.rename(source, destination)
+    with :ok <- ensure_directory(config, Path.dirname(destination), opts),
+         result <- File.rename(source, destination) do
+      case result do
+        :ok -> :ok
+        {:error, reason} -> {:error, convert_file_error(reason, source)}
+      end
     end
   end
 
@@ -138,8 +150,12 @@ defmodule Depot.Adapter.Local do
     source = full_path(config, source)
     destination = full_path(config, destination)
 
-    with :ok <- ensure_directory(config, Path.dirname(destination), opts) do
-      File.cp(source, destination)
+    with :ok <- ensure_directory(config, Path.dirname(destination), opts),
+         result <- File.cp(source, destination) do
+      case result do
+        :ok -> :ok
+        {:error, reason} -> {:error, convert_file_error(reason, source)}
+      end
     end
   end
 
@@ -154,8 +170,12 @@ defmodule Depot.Adapter.Local do
     source = full_path(source_config, source)
     destination = full_path(destination_config, destination)
 
-    with :ok <- ensure_directory(destination_config, Path.dirname(destination), opts) do
-      File.cp(source, destination)
+    with :ok <- ensure_directory(destination_config, Path.dirname(destination), opts),
+         result <- File.cp(source, destination) do
+      case result do
+        :ok -> :ok
+        {:error, reason} -> {:error, convert_file_error(reason, source)}
+      end
     end
   end
 
@@ -171,26 +191,30 @@ defmodule Depot.Adapter.Local do
   def list_contents(%Config{} = config, path) do
     full_path = full_path(config, path)
 
-    with {:ok, files} <- File.ls(full_path) do
-      contents =
-        for file <- files,
-            {:ok, stat} = File.stat(Path.join(full_path, file), time: :posix),
-            stat.type in [:directory, :regular] do
-          struct =
-            case stat.type do
-              :directory -> Depot.Stat.Dir
-              :regular -> Depot.Stat.File
-            end
+    case File.ls(full_path) do
+      {:ok, files} ->
+        contents =
+          for file <- files,
+              {:ok, stat} = File.stat(Path.join(full_path, file), time: :posix),
+              stat.type in [:directory, :regular] do
+            struct =
+              case stat.type do
+                :directory -> Depot.Stat.Dir
+                :regular -> Depot.Stat.File
+              end
 
-          struct!(struct,
-            name: file,
-            size: stat.size,
-            mtime: stat.mtime,
-            visibility: visibility_for_mode(config, stat.type, stat.mode)
-          )
-        end
+            struct!(struct,
+              name: file,
+              size: stat.size,
+              mtime: stat.mtime,
+              visibility: visibility_for_mode(config, stat.type, stat.mode)
+            )
+          end
 
-      {:ok, contents}
+        {:ok, contents}
+
+      {:error, reason} ->
+        {:error, convert_file_error(reason, full_path)}
     end
   end
 
@@ -205,9 +229,15 @@ defmodule Depot.Adapter.Local do
     path = full_path(config, path)
 
     if Keyword.get(opts, :recursive, false) do
-      with {:ok, _} <- File.rm_rf(path), do: :ok
+      case File.rm_rf(path) do
+        {:ok, _} -> :ok
+        {:error, reason, _} -> {:error, convert_file_error(reason, path)}
+      end
     else
-      File.rmdir(path)
+      case File.rmdir(path) do
+        :ok -> :ok
+        {:error, reason} -> {:error, convert_file_error(reason, path)}
+      end
     end
   end
 
@@ -234,15 +264,22 @@ defmodule Depot.Adapter.Local do
         config.converter.for_file(config.visibility, visibility)
       end
 
-    File.chmod(path, mode)
+    case File.chmod(path, mode) do
+      :ok -> :ok
+      {:error, reason} -> {:error, convert_file_error(reason, path)}
+    end
   end
 
   @impl Depot.Adapter
   def visibility(%Config{} = config, path) do
     path = full_path(config, path)
 
-    with {:ok, %{mode: mode, type: type}} <- File.stat(path) do
-      {:ok, visibility_for_mode(config, type, mode)}
+    case File.stat(path) do
+      {:ok, %{mode: mode, type: type}} ->
+        {:ok, visibility_for_mode(config, type, mode)}
+
+      {:error, reason} ->
+        {:error, convert_file_error(reason, path)}
     end
   end
 
@@ -293,9 +330,52 @@ defmodule Depot.Adapter.Local do
   end
 
   defp infinite_loop_protect(path) do
-    if Path.dirname(path) != path, do: :ok, else: {:error, :einval}
+    if Path.dirname(path) != path do
+      :ok
+    else
+      {:error, Errors.InvalidPath.exception(path: path, reason: "infinite loop detected")}
+    end
   end
 
   defp maybe_chmod(path, {:ok, mode}), do: File.chmod(path, mode)
   defp maybe_chmod(_path, :error), do: :ok
+
+  defp convert_file_error(:enoent, path) do
+    if File.dir?(Path.dirname(path)) do
+      Errors.FileNotFound.exception(file_path: path)
+    else
+      Errors.DirectoryNotFound.exception(dir_path: path)
+    end
+  end
+
+  defp convert_file_error(:enotdir, path) do
+    Errors.DirectoryNotFound.exception(dir_path: path)
+  end
+
+  defp convert_file_error(:eexist, path) do
+    Errors.DirectoryNotEmpty.exception(dir_path: path)
+  end
+
+  defp convert_file_error(:einval, path) do
+    Errors.InvalidPath.exception(path: path, reason: "invalid path")
+  end
+
+  defp convert_file_error(:eacces, path) do
+    Errors.PermissionDenied.exception(target_path: path, operation: "access")
+  end
+
+  defp convert_file_error(:eperm, path) do
+    Errors.PermissionDenied.exception(target_path: path, operation: "permission")
+  end
+
+  defp convert_file_error(reason, path) do
+    Errors.AdapterError.exception(
+      adapter: __MODULE__,
+      reason: "File operation failed on #{path}: #{inspect(reason)}"
+    )
+  end
+
+  defp convert_exception_error(%{__exception__: true} = exception, _path) do
+    exception
+  end
 end
