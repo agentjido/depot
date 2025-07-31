@@ -537,4 +537,100 @@ defmodule Depot do
   end
 
   def chunk(binary, _size), do: [binary]
+
+  @doc """
+  Commit changes to a version-controlled filesystem.
+
+  Only supported by adapters that implement versioning (like Git adapter).
+
+  ## Examples
+
+      filesystem = Depot.Adapter.Git.configure(path: "/repo", mode: :manual)
+      Depot.write(filesystem, "file.txt", "content")
+      :ok = Depot.commit(filesystem, "Add new file")
+
+  """
+  @spec commit(filesystem, String.t() | nil, keyword()) :: :ok | {:error, term}
+  def commit({adapter, config}, message \\ nil, opts \\ []) do
+    if function_exported?(adapter, :commit, 3) do
+      adapter.commit(config, message, opts)
+    else
+      {:error, :unsupported}
+    end
+  end
+
+  @doc """
+  List revisions/commits for a path in a version-controlled filesystem.
+
+  Returns a list of `%Depot.Revision{}` structs ordered by most recent first.
+
+  ## Options
+
+    * `:limit` - Maximum number of revisions to return
+    * `:since` - Only revisions after this datetime
+    * `:until` - Only revisions before this datetime
+    * `:author` - Only revisions by this author
+
+  ## Examples
+
+      filesystem = Depot.Adapter.Git.configure(path: "/repo")
+      {:ok, revisions} = Depot.revisions(filesystem, "file.txt", limit: 10)
+
+  """
+  @spec revisions(filesystem, Path.t(), keyword()) :: {:ok, [Depot.Revision.t()]} | {:error, term}
+  def revisions({adapter, config}, path \\ ".", opts \\ []) do
+    if function_exported?(adapter, :revisions, 3) do
+      with {:ok, normalized_path} <- Depot.RelativePath.normalize(path) do
+        adapter.revisions(config, normalized_path, opts)
+      else
+        {:error, reason} -> {:error, convert_path_error(reason, path)}
+      end
+    else
+      {:error, :unsupported}
+    end
+  end
+
+  @doc """
+  Read a file as it existed at a specific revision.
+
+  ## Examples
+
+      filesystem = Depot.Adapter.Git.configure(path: "/repo")
+      {:ok, content} = Depot.read_revision(filesystem, "file.txt", "abc123")
+
+  """
+  @spec read_revision(filesystem, Path.t(), String.t(), keyword()) :: {:ok, binary()} | {:error, term}
+  def read_revision({adapter, config}, path, sha, opts \\ []) do
+    if function_exported?(adapter, :read_revision, 4) do
+      with {:ok, normalized_path} <- Depot.RelativePath.normalize(path) do
+        adapter.read_revision(config, normalized_path, sha, opts)
+      else
+        {:error, reason} -> {:error, convert_path_error(reason, path)}
+      end
+    else
+      {:error, :unsupported}
+    end
+  end
+
+  @doc """
+  Rollback the filesystem to a previous revision.
+
+  ## Options
+
+    * `:path` - Only rollback changes to a specific path (if supported)
+
+  ## Examples
+
+      filesystem = Depot.Adapter.Git.configure(path: "/repo")
+      :ok = Depot.rollback(filesystem, "abc123")
+
+  """
+  @spec rollback(filesystem, String.t(), keyword()) :: :ok | {:error, term}
+  def rollback({adapter, config}, sha, opts \\ []) do
+    if function_exported?(adapter, :rollback, 3) do
+      adapter.rollback(config, sha, opts)
+    else
+      {:error, :unsupported}
+    end
+  end
 end

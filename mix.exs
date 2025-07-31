@@ -66,6 +66,8 @@ defmodule Depot.MixProject do
       {:jason, "~> 1.0"},
       {:eternal, "~> 1.2.2"},
       {:splode, "~> 0.2.9"},
+      {:git_cli, "~> 0.3.0"},
+      {:tentacat, "~> 2.0"},
 
       # Development & Test Dependencies
       {:credo, "~> 1.7", only: [:dev, :test]},
