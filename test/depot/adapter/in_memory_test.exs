@@ -67,6 +67,145 @@ defmodule Depot.Adapter.InMemoryTest do
 
       assert Enum.into(stream, <<>>) == "Hello World"
     end
+
+    test "stream with custom chunk size", %{test: test} do
+      {_, config} = filesystem = Depot.Adapter.InMemory.configure(name: test)
+
+      start_supervised(filesystem)
+
+      :ok =
+        Agent.update(via(test), fn _state ->
+          {%{"/" => {%{"test.txt" => {"Hello World", %{}}}, %{}}}, %{}}
+        end)
+
+      assert {:ok, stream} =
+               Depot.Adapter.InMemory.read_stream(config, "test.txt", chunk_size: 3)
+
+      chunks = Enum.to_list(stream)
+      assert length(chunks) > 1
+      assert Enum.join(chunks) == "Hello World"
+    end
+
+    test "stream enumerable protocol count/1 fallback works", %{test: test} do
+      {_, config} = filesystem = Depot.Adapter.InMemory.configure(name: test)
+
+      start_supervised(filesystem)
+
+      :ok =
+        Agent.update(via(test), fn _state ->
+          {%{"/" => {%{"test.txt" => {"Hello World", %{}}}, %{}}}, %{}}
+        end)
+
+      {:ok, stream} = Depot.Adapter.InMemory.read_stream(config, "test.txt", chunk_size: 5)
+      # Enum.count/1 falls back to reduce when count/1 returns error
+      assert Enum.count(stream) > 0
+    end
+
+    test "stream enumerable protocol slice/1 fallback works", %{test: test} do
+      {_, config} = filesystem = Depot.Adapter.InMemory.configure(name: test)
+
+      start_supervised(filesystem)
+
+      :ok =
+        Agent.update(via(test), fn _state ->
+          {%{"/" => {%{"test.txt" => {"Hello World", %{}}}, %{}}}, %{}}
+        end)
+
+      {:ok, stream} = Depot.Adapter.InMemory.read_stream(config, "test.txt", chunk_size: 5)
+      # Enum.slice/3 falls back to reduce when slice/1 returns error
+      result = Enum.slice(stream, 0, 1)
+      assert is_list(result)
+    end
+
+    test "stream enumerable protocol member?/2 fallback works", %{test: test} do
+      {_, config} = filesystem = Depot.Adapter.InMemory.configure(name: test)
+
+      start_supervised(filesystem)
+
+      :ok =
+        Agent.update(via(test), fn _state ->
+          {%{"/" => {%{"test.txt" => {"Hello", %{}}}, %{}}}, %{}}
+        end)
+
+      {:ok, stream} = Depot.Adapter.InMemory.read_stream(config, "test.txt", [])
+      # Enum.member?/2 falls back to reduce when member?/2 returns error
+      assert Enum.member?(stream, "Hello") == true
+    end
+
+    test "stream for non-existent file returns empty", %{test: test} do
+      {_, config} = filesystem = Depot.Adapter.InMemory.configure(name: test)
+
+      start_supervised(filesystem)
+
+      assert {:ok, stream} =
+               Depot.Adapter.InMemory.read_stream(config, "missing.txt", [])
+
+      assert Enum.to_list(stream) == []
+    end
+
+    test "stream suspend and resume functionality", %{test: test} do
+      {_, config} = filesystem = Depot.Adapter.InMemory.configure(name: test)
+
+      start_supervised(filesystem)
+
+      :ok =
+        Agent.update(via(test), fn _state ->
+          {%{"/" => {%{"test.txt" => {"Hello World", %{}}}, %{}}}, %{}}
+        end)
+
+      {:ok, stream} = Depot.Adapter.InMemory.read_stream(config, "test.txt", chunk_size: 2)
+
+      # Test suspend/resume by taking only first 2 chunks
+      result = Enum.take(stream, 2)
+      assert length(result) == 2
+      assert is_binary(hd(result))
+    end
+  end
+
+  describe "write_stream" do
+    test "collectable protocol writes data correctly", %{test: test} do
+      {_, config} = filesystem = Depot.Adapter.InMemory.configure(name: test)
+
+      start_supervised(filesystem)
+
+      {:ok, stream} = Depot.Adapter.InMemory.write_stream(config, "output.txt", [])
+
+      data = ["Hello", " ", "World"]
+      result_stream = Enum.into(data, stream)
+
+      assert result_stream.path == "output.txt"
+      assert {:ok, "Hello World"} = Depot.Adapter.InMemory.read(config, "output.txt")
+    end
+
+    test "collectable protocol appends to existing file", %{test: test} do
+      {_, config} = filesystem = Depot.Adapter.InMemory.configure(name: test)
+
+      start_supervised(filesystem)
+
+      # Write initial content
+      :ok = Depot.Adapter.InMemory.write(config, "append.txt", "Initial ", [])
+
+      {:ok, stream} = Depot.Adapter.InMemory.write_stream(config, "append.txt", [])
+
+      data = ["appended", " content"]
+      Enum.into(data, stream)
+
+      assert {:ok, "Initial appended content"} = Depot.Adapter.InMemory.read(config, "append.txt")
+    end
+
+    test "collectable protocol handles halt", %{test: test} do
+      {_, config} = filesystem = Depot.Adapter.InMemory.configure(name: test)
+
+      start_supervised(filesystem)
+
+      {:ok, stream} = Depot.Adapter.InMemory.write_stream(config, "halt.txt", [])
+
+      # Simulate halt by accessing the collector function directly
+      {[], collector_fun} = Collectable.into(stream)
+      result = collector_fun.([], :halt)
+
+      assert result == :ok
+    end
   end
 
   describe "delete" do

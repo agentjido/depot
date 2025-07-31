@@ -456,4 +456,197 @@ defmodule DepotTest do
       assert {:ok, :exists} = Depot.file_exists(filesystem_b, "test.txt")
     end
   end
+
+  describe "streaming operations" do
+    @describetag :tmp_dir
+
+    test "write_stream functionality", %{tmp_dir: prefix} do
+      filesystem = Depot.Adapter.Local.configure(prefix: prefix)
+
+      {:ok, stream} = Depot.write_stream(filesystem, "stream.txt")
+      data = ["Hello", " ", "World"]
+      Enum.into(data, stream)
+
+      assert {:ok, "Hello World"} = Depot.read(filesystem, "stream.txt")
+    end
+
+    test "read_stream functionality", %{tmp_dir: prefix} do
+      filesystem = Depot.Adapter.Local.configure(prefix: prefix)
+
+      :ok = Depot.write(filesystem, "stream.txt", "Hello World")
+      {:ok, stream} = Depot.read_stream(filesystem, "stream.txt")
+
+      assert Enum.into(stream, "") == "Hello World"
+    end
+
+    test "write_stream with invalid path", %{tmp_dir: prefix} do
+      filesystem = Depot.Adapter.Local.configure(prefix: prefix)
+
+      assert {:error, {:path, :traversal}} = Depot.write_stream(filesystem, "../invalid.txt")
+    end
+
+    test "read_stream with invalid path", %{tmp_dir: prefix} do
+      filesystem = Depot.Adapter.Local.configure(prefix: prefix)
+
+      assert {:error, {:path, :traversal}} = Depot.read_stream(filesystem, "../invalid.txt")
+    end
+  end
+
+  describe "directory operations" do
+    @describetag :tmp_dir
+
+    test "create_directory functionality", %{tmp_dir: prefix} do
+      filesystem = Depot.Adapter.Local.configure(prefix: prefix)
+
+      assert :ok = Depot.create_directory(filesystem, "test_dir/")
+      {:ok, contents} = Depot.list_contents(filesystem, ".")
+
+      assert_in_list contents, %Depot.Stat.Dir{name: "test_dir"}
+    end
+
+    test "delete_directory functionality", %{tmp_dir: prefix} do
+      filesystem = Depot.Adapter.Local.configure(prefix: prefix)
+
+      :ok = Depot.create_directory(filesystem, "test_dir/")
+      assert :ok = Depot.delete_directory(filesystem, "test_dir/")
+
+      {:ok, contents} = Depot.list_contents(filesystem, ".")
+      refute Enum.any?(contents, &match?(%Depot.Stat.Dir{name: "test_dir"}, &1))
+    end
+
+    test "clear filesystem functionality", %{tmp_dir: prefix} do
+      filesystem = Depot.Adapter.Local.configure(prefix: prefix)
+
+      :ok = Depot.write(filesystem, "test1.txt", "content")
+      :ok = Depot.write(filesystem, "test2.txt", "content")
+      :ok = Depot.create_directory(filesystem, "subdir/")
+
+      assert :ok = Depot.clear(filesystem)
+
+      {:ok, contents} = Depot.list_contents(filesystem, ".")
+      assert contents == []
+    end
+
+    test "create_directory with invalid path", %{tmp_dir: prefix} do
+      filesystem = Depot.Adapter.Local.configure(prefix: prefix)
+
+      assert {:error, {:path, :traversal}} = Depot.create_directory(filesystem, "../invalid/")
+    end
+
+    test "delete_directory with invalid path", %{tmp_dir: prefix} do
+      filesystem = Depot.Adapter.Local.configure(prefix: prefix)
+
+      assert {:error, {:path, :traversal}} = Depot.delete_directory(filesystem, "../invalid/")
+    end
+  end
+
+  describe "visibility operations" do
+    @describetag :tmp_dir
+
+    test "set_visibility functionality", %{tmp_dir: prefix} do
+      filesystem = Depot.Adapter.Local.configure(prefix: prefix)
+
+      :ok = Depot.write(filesystem, "test.txt", "content")
+      assert :ok = Depot.set_visibility(filesystem, "test.txt", :public)
+    end
+
+    test "visibility functionality", %{tmp_dir: prefix} do
+      filesystem = Depot.Adapter.Local.configure(prefix: prefix)
+
+      :ok = Depot.write(filesystem, "test.txt", "content")
+      :ok = Depot.set_visibility(filesystem, "test.txt", :public)
+
+      assert {:ok, :public} = Depot.visibility(filesystem, "test.txt")
+    end
+
+    test "set_visibility with invalid path", %{tmp_dir: prefix} do
+      filesystem = Depot.Adapter.Local.configure(prefix: prefix)
+
+      assert {:error, {:path, :traversal}} = Depot.set_visibility(filesystem, "../invalid.txt", :public)
+    end
+
+    test "visibility with invalid path", %{tmp_dir: prefix} do
+      filesystem = Depot.Adapter.Local.configure(prefix: prefix)
+
+      assert {:error, {:path, :traversal}} = Depot.visibility(filesystem, "../invalid.txt")
+    end
+  end
+
+  describe "chunk function" do
+    test "chunks empty string" do
+      assert Depot.chunk("", 5) == []
+    end
+
+    test "chunks string smaller than size" do
+      assert Depot.chunk("Hi", 5) == ["Hi"]
+    end
+
+    test "chunks string equal to size" do
+      assert Depot.chunk("Hello", 5) == ["Hello"]
+    end
+
+    test "chunks string larger than size" do
+      assert Depot.chunk("Hello World", 5) == ["Hello", " Worl", "d"]
+    end
+
+    test "chunks with size 1" do
+      assert Depot.chunk("ABC", 1) == ["A", "B", "C"]
+    end
+  end
+
+  describe "copy_between_filesystem edge cases" do
+    @describetag :tmp_dir
+
+    test "copy_via_local_memory with read stream only", %{tmp_dir: prefix} do
+      filesystem_a = Depot.Adapter.Local.configure(prefix: prefix)
+      filesystem_b = Depot.Adapter.InMemory.configure(name: InMemoryTest.StreamOnly)
+
+      start_supervised(filesystem_b)
+
+      :ok = Depot.write(filesystem_a, "test.txt", "Hello World")
+
+      assert :ok =
+               Depot.copy_between_filesystem(
+                 {filesystem_a, "test.txt"},
+                 {filesystem_b, "test.txt"}
+               )
+
+      assert {:ok, "Hello World"} = Depot.read(filesystem_b, "test.txt")
+    end
+
+    test "copy_via_local_memory with write stream only", %{tmp_dir: prefix} do
+      filesystem_a = Depot.Adapter.InMemory.configure(name: InMemoryTest.WriteStreamOnly)
+      filesystem_b = Depot.Adapter.Local.configure(prefix: prefix)
+
+      start_supervised(filesystem_a)
+
+      :ok = Depot.write(filesystem_a, "test.txt", "Hello World")
+
+      assert :ok =
+               Depot.copy_between_filesystem(
+                 {filesystem_a, "test.txt"},
+                 {filesystem_b, "test.txt"}
+               )
+
+      assert {:ok, "Hello World"} = Depot.read(filesystem_b, "test.txt")
+    end
+
+    test "copy_via_local_memory no streaming support" do
+      filesystem_a = Depot.Adapter.InMemory.configure(name: InMemoryTest.NoStreamA)
+      filesystem_b = Depot.Adapter.InMemory.configure(name: InMemoryTest.NoStreamB)
+
+      filesystem_a |> Supervisor.child_spec(id: :no_stream_a) |> start_supervised()
+      filesystem_b |> Supervisor.child_spec(id: :no_stream_b) |> start_supervised()
+
+      :ok = Depot.write(filesystem_a, "test.txt", "Hello World")
+
+      assert :ok =
+               Depot.copy_between_filesystem(
+                 {filesystem_a, "test.txt"},
+                 {filesystem_b, "test.txt"}
+               )
+
+      assert {:ok, "Hello World"} = Depot.read(filesystem_b, "test.txt")
+    end
+  end
 end

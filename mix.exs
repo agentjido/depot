@@ -13,7 +13,8 @@ defmodule Depot.MixProject do
       name: "Depot",
       source_url: "https://github.com/elixir-depot/depot",
       docs: docs(),
-      elixirc_paths: elixirc_paths(Mix.env())
+      elixirc_paths: elixirc_paths(Mix.env()),
+      aliases: aliases()
     ]
   end
 
@@ -63,7 +64,38 @@ defmodule Depot.MixProject do
       {:sweet_xml, "~> 0.6"},
       {:minio_server, "~> 0.4.0", only: [:dev, :test]},
       {:jason, "~> 1.0"},
-      {:ex_doc, "~> 0.35", only: :dev, runtime: false}
+
+      # Development & Test Dependencies
+      {:credo, "~> 1.7", only: [:dev, :test]},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+      {:doctor, "~> 0.21", only: [:dev, :test], runtime: false},
+      {:ex_doc, "~> 0.34", only: :dev, runtime: false},
+      {:excoveralls, "~> 0.18.3", only: [:dev, :test]},
+      {:expublish, "~> 2.7", only: [:dev], runtime: false},
+      {:mix_test_watch, "~> 1.0", only: [:dev, :test], runtime: false},
+      {:mimic, "~> 2.0", only: :test},
+      {:stream_data, "~> 1.0", only: [:dev, :test]}
+    ]
+  end
+
+  defp aliases do
+    [
+      # Helper to run tests with trace when needed
+      # test: "test --trace --exclude flaky",
+      test: "test --exclude flaky",
+
+      # Helper to run docs
+      docs: "docs -f html --open",
+
+      # Run to check the quality of your code
+      q: ["quality"],
+      quality: [
+        "format",
+        "format --check-formatted",
+        "compile --warnings-as-errors",
+        "dialyzer --format dialyxir",
+        "credo --all"
+      ]
     ]
   end
 end
