@@ -599,7 +599,8 @@ defmodule Depot do
       {:ok, content} = Depot.read_revision(filesystem, "file.txt", "abc123")
 
   """
-  @spec read_revision(filesystem, Path.t(), String.t(), keyword()) :: {:ok, binary()} | {:error, term}
+  @spec read_revision(filesystem, Path.t(), String.t(), keyword()) ::
+          {:ok, binary()} | {:error, term}
   def read_revision({adapter, config}, path, sha, opts \\ []) do
     if function_exported?(adapter, :read_revision, 4) do
       with {:ok, normalized_path} <- Depot.RelativePath.normalize(path) do

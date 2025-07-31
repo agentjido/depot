@@ -240,6 +240,91 @@ defmodule Depot.Adapter.InMemoryTest do
     end
   end
 
+  describe "versioning" do
+    test "write_version creates version and returns version_id", %{test: test} do
+      {_, config} = filesystem = Depot.Adapter.InMemory.configure(name: test)
+      start_supervised(filesystem)
+
+      assert {:ok, version_id} =
+               Depot.Adapter.InMemory.write_version(config, "test.txt", "Hello World v1", [])
+
+      assert is_binary(version_id)
+      assert String.length(version_id) == 32
+    end
+
+    test "read_version retrieves specific version", %{test: test} do
+      {_, config} = filesystem = Depot.Adapter.InMemory.configure(name: test)
+      start_supervised(filesystem)
+
+      {:ok, version_id} =
+        Depot.Adapter.InMemory.write_version(config, "test.txt", "Hello World v1", [])
+
+      assert {:ok, "Hello World v1"} =
+               Depot.Adapter.InMemory.read_version(config, "test.txt", version_id)
+    end
+
+    test "list_versions returns all versions for a path", %{test: test} do
+      {_, config} = filesystem = Depot.Adapter.InMemory.configure(name: test)
+      start_supervised(filesystem)
+
+      {:ok, v1} = Depot.Adapter.InMemory.write_version(config, "test.txt", "Version 1", [])
+      {:ok, v2} = Depot.Adapter.InMemory.write_version(config, "test.txt", "Version 2", [])
+
+      {:ok, versions} = Depot.Adapter.InMemory.list_versions(config, "test.txt")
+      assert length(versions) == 2
+      assert Enum.any?(versions, &(&1.version_id == v1))
+      assert Enum.any?(versions, &(&1.version_id == v2))
+    end
+
+    test "get_latest_version returns most recent version", %{test: test} do
+      {_, config} = filesystem = Depot.Adapter.InMemory.configure(name: test)
+      start_supervised(filesystem)
+
+      {:ok, _v1} = Depot.Adapter.InMemory.write_version(config, "test.txt", "Version 1", [])
+      {:ok, v2} = Depot.Adapter.InMemory.write_version(config, "test.txt", "Version 2", [])
+
+      assert {:ok, ^v2} = Depot.Adapter.InMemory.get_latest_version(config, "test.txt")
+    end
+
+    test "restore_version restores file to specific version", %{test: test} do
+      {_, config} = filesystem = Depot.Adapter.InMemory.configure(name: test)
+      start_supervised(filesystem)
+
+      {:ok, v1} = Depot.Adapter.InMemory.write_version(config, "test.txt", "Version 1", [])
+      {:ok, _v2} = Depot.Adapter.InMemory.write_version(config, "test.txt", "Version 2", [])
+
+      assert :ok = Depot.Adapter.InMemory.restore_version(config, "test.txt", v1)
+      assert {:ok, "Version 1"} = Depot.Adapter.InMemory.read(config, "test.txt")
+    end
+
+    test "delete_version removes specific version", %{test: test} do
+      {_, config} = filesystem = Depot.Adapter.InMemory.configure(name: test)
+      start_supervised(filesystem)
+
+      {:ok, v1} = Depot.Adapter.InMemory.write_version(config, "test.txt", "Version 1", [])
+      {:ok, v2} = Depot.Adapter.InMemory.write_version(config, "test.txt", "Version 2", [])
+
+      assert :ok = Depot.Adapter.InMemory.delete_version(config, "test.txt", v1)
+
+      {:ok, versions} = Depot.Adapter.InMemory.list_versions(config, "test.txt")
+      assert length(versions) == 1
+      assert hd(versions).version_id == v2
+
+      assert {:error, _} = Depot.Adapter.InMemory.read_version(config, "test.txt", v1)
+    end
+
+    test "versioning preserves visibility", %{test: test} do
+      {_, config} = filesystem = Depot.Adapter.InMemory.configure(name: test)
+      start_supervised(filesystem)
+
+      {:ok, version_id} =
+        Depot.Adapter.InMemory.write_version(config, "test.txt", "Content", visibility: :public)
+
+      assert :ok = Depot.Adapter.InMemory.restore_version(config, "test.txt", version_id)
+      assert {:ok, :public} = Depot.Adapter.InMemory.visibility(config, "test.txt")
+    end
+  end
+
   defp via(name) do
     Depot.Registry.via(Depot.Adapter.InMemory, name)
   end

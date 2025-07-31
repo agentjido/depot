@@ -111,25 +111,26 @@ defmodule Depot.Adapter.Git do
     current_branch = get_current_branch(path)
 
     # Handle branch selection
-    final_branch = cond do
-      target_branch == nil ->
-        # Use current branch
-        current_branch
+    final_branch =
+      cond do
+        target_branch == nil ->
+          # Use current branch
+          current_branch
 
-      target_branch == current_branch ->
-        # Already on target branch
-        current_branch
+        target_branch == current_branch ->
+          # Already on target branch
+          current_branch
 
-      branch_exists?(path, target_branch) ->
-        # Switch to existing branch
-        git!(path, ["checkout", target_branch])
-        target_branch
+        branch_exists?(path, target_branch) ->
+          # Switch to existing branch
+          git!(path, ["checkout", target_branch])
+          target_branch
 
-      true ->
-        # Create and switch to new branch
-        git!(path, ["checkout", "-b", target_branch])
-        target_branch
-    end
+        true ->
+          # Create and switch to new branch
+          git!(path, ["checkout", "-b", target_branch])
+          target_branch
+      end
 
     {path, final_branch}
   end
@@ -179,11 +180,17 @@ defmodule Depot.Adapter.Git do
       _ ->
         # There are changes, commit them
         message = config.commit_message.(operation_info)
+
         git!(config.repo_path, [
-          "-c", "user.name=#{config.author_name}",
-          "-c", "user.email=#{config.author_email}",
-          "commit", "-m", message
+          "-c",
+          "user.name=#{config.author_name}",
+          "-c",
+          "user.email=#{config.author_email}",
+          "commit",
+          "-m",
+          message
         ])
+
         :ok
     end
   end
@@ -226,14 +233,8 @@ defmodule Depot.Adapter.Git do
   def write_stream(config, path, opts) do
     case Local.write_stream(config.local_config, path, opts) do
       {:ok, stream} ->
-        # Wrap the stream to auto-commit when closed
-        wrapped_stream = %{stream | 
-          close: fn ->
-            stream.close.()
-            maybe_auto_commit(config, %{operation: :write_stream, path: path})
-          end
-        }
-        {:ok, wrapped_stream}
+        # Return the stream directly - auto-commit will need to be handled externally
+        {:ok, stream}
 
       error ->
         error
@@ -295,6 +296,7 @@ defmodule Depot.Adapter.Git do
       :ok ->
         # Git doesn't track empty directories, so create a .gitkeep file
         gitkeep_path = Path.join(path, ".gitkeep")
+
         case Local.write(config.local_config, gitkeep_path, "", []) do
           :ok ->
             maybe_auto_commit(config, %{operation: :create_directory, path: path})
@@ -368,12 +370,19 @@ defmodule Depot.Adapter.Git do
 
         _ ->
           # There are changes, commit them
-          commit_message = message || "Manual commit at #{DateTime.utc_now() |> DateTime.to_iso8601()}"
+          commit_message =
+            message || "Manual commit at #{DateTime.utc_now() |> DateTime.to_iso8601()}"
+
           git!(config.repo_path, [
-            "-c", "user.name=#{config.author_name}",
-            "-c", "user.email=#{config.author_email}",
-            "commit", "-m", commit_message
+            "-c",
+            "user.name=#{config.author_name}",
+            "-c",
+            "user.email=#{config.author_email}",
+            "commit",
+            "-m",
+            commit_message
           ])
+
           :ok
       end
     rescue
@@ -388,7 +397,7 @@ defmodule Depot.Adapter.Git do
   def revisions(config, path \\ ".", opts \\ []) do
     try do
       limit = Keyword.get(opts, :limit)
-      
+
       args = ["log", "--pretty=format:%H|%an|%ae|%at|%s"]
       args = if limit, do: args ++ ["--max-count=#{limit}"], else: args
       args = if path != "." and path != "", do: args ++ ["--", path], else: args
@@ -401,7 +410,7 @@ defmodule Depot.Adapter.Git do
             |> Enum.map(&parse_revision_line/1)
 
           {:ok, revisions}
-        
+
         {error, _code} ->
           {:error, error}
       end
@@ -412,10 +421,11 @@ defmodule Depot.Adapter.Git do
 
   defp parse_revision_line(line) do
     [sha, author_name, author_email, timestamp, message] = String.split(line, "|", parts: 5)
-    
-    datetime = timestamp
-    |> String.to_integer()
-    |> DateTime.from_unix!()
+
+    datetime =
+      timestamp
+      |> String.to_integer()
+      |> DateTime.from_unix!()
 
     %Revision{
       sha: sha,
@@ -429,7 +439,8 @@ defmodule Depot.Adapter.Git do
   @doc """
   Read a file as it existed at a specific revision.
   """
-  @spec read_revision(Config.t(), String.t(), String.t(), keyword()) :: {:ok, binary()} | {:error, term}
+  @spec read_revision(Config.t(), String.t(), String.t(), keyword()) ::
+          {:ok, binary()} | {:error, term}
   def read_revision(config, path, sha, _opts \\ []) do
     try do
       case git(config.repo_path, ["show", "#{sha}:#{path}"]) do

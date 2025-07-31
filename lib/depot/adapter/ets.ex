@@ -45,7 +45,7 @@ defmodule Depot.Adapter.ETS do
 
   defmodule Config do
     @moduledoc false
-    defstruct name: nil, table: nil, eternal: false
+    defstruct name: nil, table: nil, eternal: false, versions_table: nil
   end
 
   defmodule ETSStream do
@@ -100,7 +100,20 @@ defmodule Depot.Adapter.ETS do
         :ets.new(config.name, [:set, :protected])
       end
 
-    {:ok, %Config{config | table: table}}
+    # Create versions table for versioning support
+    versions_table_name = String.to_atom("#{config.name}_versions")
+
+    versions_table =
+      if config.eternal do
+        case Eternal.start_link(versions_table_name, [:set, :protected]) do
+          {:ok, _pid} -> versions_table_name
+          {:error, {:already_started, _pid}} -> versions_table_name
+        end
+      else
+        :ets.new(versions_table_name, [:set, :protected])
+      end
+
+    {:ok, %Config{config | table: table} |> Map.put(:versions_table, versions_table)}
   end
 
   @impl Depot.Adapter
@@ -335,6 +348,125 @@ defmodule Depot.Adapter.ETS do
     {:reply, :ok, state}
   end
 
+  # Versioning handle_call functions
+
+  def handle_call(
+        {:write_version, path, contents, opts},
+        _from,
+        %Config{table: table, versions_table: versions_table} = state
+      ) do
+    visibility = Keyword.get(opts, :visibility, @default_visibility)
+    directory_visibility = Keyword.get(opts, :directory_visibility, @default_visibility)
+
+    version_id = generate_version_id()
+    timestamp = System.system_time(:second)
+
+    # Store the version
+    version_key = {path, version_id}
+
+    version_data =
+      {IO.iodata_to_binary(contents), %{visibility: visibility, timestamp: timestamp}}
+
+    :ets.insert(versions_table, {version_key, version_data})
+
+    # Update the current file
+    file = {IO.iodata_to_binary(contents), %{visibility: visibility}}
+    :ets.insert(table, {path, file})
+    create_parent_directories(table, path, directory_visibility)
+
+    # Store version metadata for the path
+    path_versions =
+      case :ets.lookup(versions_table, path) do
+        [{^path, existing_versions}] -> existing_versions
+        [] -> []
+      end
+
+    version_info = %{version_id: version_id, timestamp: timestamp}
+    :ets.insert(versions_table, {path, [version_info | path_versions]})
+
+    {:reply, {:ok, version_id}, state}
+  end
+
+  def handle_call(
+        {:read_version, path, version_id},
+        _from,
+        %Config{versions_table: versions_table} = state
+      ) do
+    reply =
+      case :ets.lookup(versions_table, {path, version_id}) do
+        [{{^path, ^version_id}, {binary, _meta}}] when is_binary(binary) -> {:ok, binary}
+        [] -> {:error, Errors.FileNotFound.exception(file_path: "#{path}@#{version_id}")}
+      end
+
+    {:reply, reply, state}
+  end
+
+  def handle_call({:list_versions, path}, _from, %Config{versions_table: versions_table} = state) do
+    reply =
+      case :ets.lookup(versions_table, path) do
+        [{^path, version_list}] -> {:ok, Enum.reverse(version_list)}
+        [] -> {:ok, []}
+      end
+
+    {:reply, reply, state}
+  end
+
+  def handle_call(
+        {:delete_version, path, version_id},
+        _from,
+        %Config{versions_table: versions_table} = state
+      ) do
+    # Remove the version data
+    :ets.delete(versions_table, {path, version_id})
+
+    # Remove from version list for the path
+    case :ets.lookup(versions_table, path) do
+      [{^path, version_list}] ->
+        updated_versions = Enum.reject(version_list, &(&1.version_id == version_id))
+        :ets.insert(versions_table, {path, updated_versions})
+
+      [] ->
+        :ok
+    end
+
+    {:reply, :ok, state}
+  end
+
+  def handle_call(
+        {:get_latest_version, path},
+        _from,
+        %Config{versions_table: versions_table} = state
+      ) do
+    reply =
+      case :ets.lookup(versions_table, path) do
+        [{^path, [latest | _]}] -> {:ok, latest.version_id}
+        [{^path, []}] -> {:error, Errors.FileNotFound.exception(file_path: path)}
+        [] -> {:error, Errors.FileNotFound.exception(file_path: path)}
+      end
+
+    {:reply, reply, state}
+  end
+
+  def handle_call(
+        {:restore_version, path, version_id},
+        _from,
+        %Config{table: table, versions_table: versions_table} = state
+      ) do
+    reply =
+      case :ets.lookup(versions_table, {path, version_id}) do
+        [{{^path, ^version_id}, {binary, meta}}] when is_binary(binary) ->
+          # Restore the file to current
+          file = {binary, %{visibility: meta.visibility}}
+          :ets.insert(table, {path, file})
+          :ok
+
+        [] ->
+          {:error, Errors.FileNotFound.exception(file_path: "#{path}@#{version_id}")}
+      end
+
+    {:reply, reply, state}
+  end
+
   # Private Helper Functions
 
   defp normalize_path(path), do: String.trim_trailing(path, "/")
@@ -566,5 +698,41 @@ defmodule Depot.Adapter.ETS do
           {path, {IO.iodata_to_binary(content), %{visibility: @default_visibility}}}
         )
     end
+  end
+
+  # Versioning adapter implementation
+
+  @impl Depot.Adapter
+  def write_version(config, path, contents, opts) do
+    call_server(config, {:write_version, path, contents, opts})
+  end
+
+  @impl Depot.Adapter
+  def read_version(config, path, version_id) do
+    call_server(config, {:read_version, path, version_id})
+  end
+
+  @impl Depot.Adapter
+  def list_versions(config, path) do
+    call_server(config, {:list_versions, path})
+  end
+
+  @impl Depot.Adapter
+  def delete_version(config, path, version_id) do
+    call_server(config, {:delete_version, path, version_id})
+  end
+
+  @impl Depot.Adapter
+  def get_latest_version(config, path) do
+    call_server(config, {:get_latest_version, path})
+  end
+
+  @impl Depot.Adapter
+  def restore_version(config, path, version_id) do
+    call_server(config, {:restore_version, path, version_id})
+  end
+
+  defp generate_version_id do
+    :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower)
   end
 end

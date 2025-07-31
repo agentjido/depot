@@ -43,7 +43,7 @@ end
 
 defmodule Depot.Errors.Unknown.Unknown do
   @moduledoc "Fallback unknown error"
-  use Splode.Error, class: :unknown
+  use Splode.Error, fields: [:error], class: :unknown
 
   def message(%{error: error}) do
     if is_binary(error) do

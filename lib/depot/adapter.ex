@@ -32,4 +32,21 @@ defmodule Depot.Adapter do
   @callback clear(config) :: :ok | {:error, term}
   @callback set_visibility(config, path, Depot.Visibility.t()) :: :ok | {:error, term}
   @callback visibility(config, path) :: {:ok, Depot.Visibility.t()} | {:error, term}
+
+  # Versioning callbacks (optional - adapters can choose to implement these)
+  @optional_callbacks write_version: 4,
+                      read_version: 3,
+                      list_versions: 2,
+                      delete_version: 3,
+                      get_latest_version: 2,
+                      restore_version: 3
+
+  @callback write_version(config, path, contents :: iodata(), write_opts) ::
+              {:ok, version_id :: binary} | {:error, term}
+  @callback read_version(config, path, version_id :: binary) :: {:ok, binary} | {:error, term}
+  @callback list_versions(config, path) ::
+              {:ok, [%{version_id: binary, timestamp: integer}]} | {:error, term}
+  @callback delete_version(config, path, version_id :: binary) :: :ok | {:error, term}
+  @callback get_latest_version(config, path) :: {:ok, version_id :: binary} | {:error, term}
+  @callback restore_version(config, path, version_id :: binary) :: :ok | {:error, term}
 end

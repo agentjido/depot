@@ -291,4 +291,82 @@ defmodule Depot.Adapter.ETSTest do
       assert config.eternal == false
     end
   end
+
+  describe "versioning" do
+    test "write_version creates version and returns version_id", %{filesystem: filesystem} do
+      {_, config} = filesystem
+
+      assert {:ok, version_id} =
+               Depot.Adapter.ETS.write_version(config, "test.txt", "Hello World v1", [])
+
+      assert is_binary(version_id)
+      assert String.length(version_id) == 32
+    end
+
+    test "read_version retrieves specific version", %{filesystem: filesystem} do
+      {_, config} = filesystem
+
+      {:ok, version_id} =
+        Depot.Adapter.ETS.write_version(config, "test.txt", "Hello World v1", [])
+
+      assert {:ok, "Hello World v1"} =
+               Depot.Adapter.ETS.read_version(config, "test.txt", version_id)
+    end
+
+    test "list_versions returns all versions for a path", %{filesystem: filesystem} do
+      {_, config} = filesystem
+
+      {:ok, v1} = Depot.Adapter.ETS.write_version(config, "test.txt", "Version 1", [])
+      {:ok, v2} = Depot.Adapter.ETS.write_version(config, "test.txt", "Version 2", [])
+
+      {:ok, versions} = Depot.Adapter.ETS.list_versions(config, "test.txt")
+      assert length(versions) == 2
+      assert Enum.any?(versions, &(&1.version_id == v1))
+      assert Enum.any?(versions, &(&1.version_id == v2))
+    end
+
+    test "get_latest_version returns most recent version", %{filesystem: filesystem} do
+      {_, config} = filesystem
+
+      {:ok, _v1} = Depot.Adapter.ETS.write_version(config, "test.txt", "Version 1", [])
+      {:ok, v2} = Depot.Adapter.ETS.write_version(config, "test.txt", "Version 2", [])
+
+      assert {:ok, ^v2} = Depot.Adapter.ETS.get_latest_version(config, "test.txt")
+    end
+
+    test "restore_version restores file to specific version", %{filesystem: filesystem} do
+      {_, config} = filesystem
+
+      {:ok, v1} = Depot.Adapter.ETS.write_version(config, "test.txt", "Version 1", [])
+      {:ok, _v2} = Depot.Adapter.ETS.write_version(config, "test.txt", "Version 2", [])
+
+      assert :ok = Depot.Adapter.ETS.restore_version(config, "test.txt", v1)
+      assert {:ok, "Version 1"} = Depot.Adapter.ETS.read(config, "test.txt")
+    end
+
+    test "delete_version removes specific version", %{filesystem: filesystem} do
+      {_, config} = filesystem
+
+      {:ok, v1} = Depot.Adapter.ETS.write_version(config, "test.txt", "Version 1", [])
+      {:ok, v2} = Depot.Adapter.ETS.write_version(config, "test.txt", "Version 2", [])
+
+      assert :ok = Depot.Adapter.ETS.delete_version(config, "test.txt", v1)
+
+      {:ok, versions} = Depot.Adapter.ETS.list_versions(config, "test.txt")
+      assert length(versions) == 1
+      assert hd(versions).version_id == v2
+
+      assert {:error, _} = Depot.Adapter.ETS.read_version(config, "test.txt", v1)
+    end
+
+    test "versioning preserves visibility", %{filesystem: filesystem} do
+      {_, config} = filesystem
+
+      {:ok, version_id} =
+        Depot.Adapter.ETS.write_version(config, "test.txt", "Content", visibility: :public)
+
+      assert :ok = Depot.Adapter.ETS.restore_version(config, "test.txt", version_id)
+      assert {:ok, :public} = Depot.Adapter.ETS.visibility(config, "test.txt")
+    end
+  end
 end

@@ -74,17 +74,19 @@ defmodule Depot.Adapter.GitHub do
     repo = Keyword.fetch!(opts, :repo)
     ref = Keyword.get(opts, :ref, "main")
     auth = Keyword.get(opts, :auth)
-    
-    client = case auth do
-      nil -> Tentacat.Client.new()
-      auth_map -> Tentacat.Client.new(auth_map)
-    end
 
-    commit_info = Keyword.get(opts, :commit_info, %{
-      message: "Update via Depot",
-      committer: %{name: "Depot", email: "depot@example.com"},
-      author: %{name: "Depot", email: "depot@example.com"}
-    })
+    client =
+      case auth do
+        nil -> Tentacat.Client.new()
+        auth_map -> Tentacat.Client.new(auth_map)
+      end
+
+    commit_info =
+      Keyword.get(opts, :commit_info, %{
+        message: "Update via Depot",
+        committer: %{name: "Depot", email: "depot@example.com"},
+        author: %{name: "Depot", email: "depot@example.com"}
+      })
 
     config = %__MODULE__{
       owner: owner,
@@ -119,10 +121,11 @@ defmodule Depot.Adapter.GitHub do
     author = Keyword.get(opts, :author, config.commit_info.author)
 
     # Get current file SHA if it exists (required for updates)
-    current_sha = case Tentacat.Contents.find_in(config.client, config.owner, config.repo, path, config.ref) do
-      {200, %{"sha" => sha}, _response} -> sha
-      _ -> nil
-    end
+    current_sha =
+      case Tentacat.Contents.find_in(config.client, config.owner, config.repo, path, config.ref) do
+        {200, %{"sha" => sha}, _response} -> sha
+        _ -> nil
+      end
 
     params = %{
       message: message,
@@ -134,8 +137,13 @@ defmodule Depot.Adapter.GitHub do
     params = if current_sha, do: Map.put(params, :sha, current_sha), else: params
 
     case Tentacat.Contents.create(config.client, config.owner, config.repo, path, params) do
-      {201, _body, _response} -> :ok
-      {200, _body, _response} -> :ok  # Update case
+      {201, _body, _response} ->
+        :ok
+
+      # Update case
+      {200, _body, _response} ->
+        :ok
+
       {status, body, _response} ->
         {:error, "GitHub API error: #{status} - #{inspect(body)}"}
     end
@@ -158,7 +166,9 @@ defmodule Depot.Adapter.GitHub do
         }
 
         case Tentacat.Contents.remove(config.client, config.owner, config.repo, path, params) do
-          {200, _body, _response} -> :ok
+          {200, _body, _response} ->
+            :ok
+
           {status, body, _response} ->
             {:error, "GitHub API error: #{status} - #{inspect(body)}"}
         end
@@ -190,12 +200,19 @@ defmodule Depot.Adapter.GitHub do
   @impl true
   def list_contents(%__MODULE__{} = config, path \\ "") do
     # Normalize path - GitHub API expects no leading slash for root
-    normalized_path = case String.trim_leading(path, "/") do
-      "" -> ""
-      p -> p
-    end
+    normalized_path =
+      case String.trim_leading(path, "/") do
+        "" -> ""
+        p -> p
+      end
 
-    case Tentacat.Contents.find_in(config.client, config.owner, config.repo, normalized_path, config.ref) do
+    case Tentacat.Contents.find_in(
+           config.client,
+           config.owner,
+           config.repo,
+           normalized_path,
+           config.ref
+         ) do
       {200, contents, _response} when is_list(contents) ->
         stats = Enum.map(contents, &content_to_stat/1)
         {:ok, stats}
@@ -222,8 +239,6 @@ defmodule Depot.Adapter.GitHub do
       {status, body, _response} -> {:error, "GitHub API error: #{status} - #{inspect(body)}"}
     end
   end
-
-
 
   # GitHub doesn't support creating empty directories
   @impl true
@@ -277,7 +292,8 @@ defmodule Depot.Adapter.GitHub do
     %File{
       name: name,
       size: size,
-      mtime: DateTime.utc_now()  # GitHub doesn't provide mtime in contents API
+      # GitHub doesn't provide mtime in contents API
+      mtime: DateTime.utc_now()
     }
   end
 

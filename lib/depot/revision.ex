@@ -1,7 +1,7 @@
 defmodule Depot.Revision do
   @moduledoc """
   Represents a Git revision/commit in the Depot filesystem.
-  
+
   Contains metadata about a specific point in the repository's history.
   """
 

@@ -94,7 +94,7 @@ defmodule Depot.Adapter.InMemory do
   end
 
   def start_link(%Config{} = config) do
-    Agent.start_link(fn -> {%{}, %{}} end, name: Depot.Registry.via(__MODULE__, config.name))
+    Agent.start_link(fn -> {%{}, %{}, %{}} end, name: Depot.Registry.via(__MODULE__, config.name))
   end
 
   @impl Depot.Adapter
@@ -274,7 +274,7 @@ defmodule Depot.Adapter.InMemory do
 
   @impl Depot.Adapter
   def clear(%Config{} = config) do
-    Agent.update(Depot.Registry.via(__MODULE__, config.name), fn _ -> {%{}, %{}} end)
+    Agent.update(Depot.Registry.via(__MODULE__, config.name), fn _ -> {%{}, %{}, %{}} end)
   end
 
   @impl Depot.Adapter
@@ -320,5 +320,125 @@ defmodule Depot.Adapter.InMemory do
   defp do_accessor([segment | rest], acc, default) do
     intermediate_default = default || {%{}, %{}}
     do_accessor(rest, [Access.key(segment, intermediate_default), Access.elem(0) | acc], default)
+  end
+
+  # Versioning implementation
+
+  @impl Depot.Adapter
+  def write_version(%Config{} = config, path, contents, opts) do
+    visibility = Keyword.get(opts, :visibility, :private)
+    directory_visibility = Keyword.get(opts, :directory_visibility, :private)
+
+    Agent.get_and_update(Depot.Registry.via(__MODULE__, config.name), fn {files, dirs, versions} ->
+      version_id = generate_version_id()
+      timestamp = System.system_time(:second)
+
+      # Store the version
+      version_key = {path, version_id}
+
+      version_data =
+        {IO.iodata_to_binary(contents), %{visibility: visibility, timestamp: timestamp}}
+
+      new_versions = Map.put(versions, version_key, version_data)
+
+      # Store version metadata for the path
+      path_versions = Map.get(versions, path, [])
+      version_info = %{version_id: version_id, timestamp: timestamp}
+      final_versions = Map.put(new_versions, path, [version_info | path_versions])
+
+      # Update the current file
+      file = {IO.iodata_to_binary(contents), %{visibility: visibility}}
+      directory = {%{}, %{visibility: directory_visibility}}
+
+      # Use the same logic as the regular write function 
+      updated_files =
+        try do
+          put_in(files, accessor(path, directory), file)
+        rescue
+          # If the path doesn't exist, start with an empty file structure
+          _ ->
+            put_in({%{}, %{}}, accessor(path, directory), file) |> elem(0)
+        end
+
+      {{:ok, version_id}, {updated_files, dirs, final_versions}}
+    end)
+  end
+
+  @impl Depot.Adapter
+  def read_version(%Config{} = config, path, version_id) do
+    Agent.get(Depot.Registry.via(__MODULE__, config.name), fn {_files, _dirs, versions} ->
+      case Map.get(versions, {path, version_id}) do
+        {binary, _meta} when is_binary(binary) -> {:ok, binary}
+        _ -> {:error, Errors.FileNotFound.exception(file_path: "#{path}@#{version_id}")}
+      end
+    end)
+  end
+
+  @impl Depot.Adapter
+  def list_versions(%Config{} = config, path) do
+    Agent.get(Depot.Registry.via(__MODULE__, config.name), fn {_files, _dirs, versions} ->
+      case Map.get(versions, path) do
+        nil -> {:ok, []}
+        version_list -> {:ok, Enum.reverse(version_list)}
+      end
+    end)
+  end
+
+  @impl Depot.Adapter
+  def delete_version(%Config{} = config, path, version_id) do
+    Agent.update(Depot.Registry.via(__MODULE__, config.name), fn {files, dirs, versions} ->
+      # Remove the version data
+      versions = Map.delete(versions, {path, version_id})
+
+      # Remove from version list for the path
+      path_versions = Map.get(versions, path, [])
+      updated_versions = Enum.reject(path_versions, &(&1.version_id == version_id))
+      versions = Map.put(versions, path, updated_versions)
+
+      {files, dirs, versions}
+    end)
+
+    :ok
+  end
+
+  @impl Depot.Adapter
+  def get_latest_version(%Config{} = config, path) do
+    Agent.get(Depot.Registry.via(__MODULE__, config.name), fn {_files, _dirs, versions} ->
+      case Map.get(versions, path) do
+        [latest | _] -> {:ok, latest.version_id}
+        [] -> {:error, Errors.FileNotFound.exception(file_path: path)}
+        nil -> {:error, Errors.FileNotFound.exception(file_path: path)}
+      end
+    end)
+  end
+
+  @impl Depot.Adapter
+  def restore_version(%Config{} = config, path, version_id) do
+    Agent.get_and_update(Depot.Registry.via(__MODULE__, config.name), fn {files, dirs, versions} ->
+      case Map.get(versions, {path, version_id}) do
+        {binary, meta} when is_binary(binary) ->
+          # Restore the file to current
+          file = {binary, %{visibility: meta.visibility}}
+          directory = {%{}, %{visibility: :private}}
+
+          updated_files =
+            try do
+              put_in(files, accessor(path, directory), file)
+            rescue
+              _ ->
+                put_in({%{}, %{}}, accessor(path, directory), file) |> elem(0)
+            end
+
+          {:ok, {updated_files, dirs, versions}}
+
+        _ ->
+          {{:error, Errors.FileNotFound.exception(file_path: "#{path}@#{version_id}")},
+           {files, dirs, versions}}
+      end
+    end)
+  end
+
+  defp generate_version_id do
+    :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower)
   end
 end
