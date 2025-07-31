@@ -9,6 +9,13 @@ defmodule Depot.Adapter.ETS do
       iex> :ok = Depot.write(filesystem, "test.txt", "Hello World")
       iex> {:ok, "Hello World"} = Depot.read(filesystem, "test.txt")
 
+  ## Direct usage with eternal tables
+
+      iex> filesystem = Depot.Adapter.ETS.configure(name: ETSFileSystem, eternal: true)
+      iex> start_supervised(filesystem)
+      iex> :ok = Depot.write(filesystem, "test.txt", "Hello World")
+      iex> {:ok, "Hello World"} = Depot.read(filesystem, "test.txt")
+
   ## Usage with a module
 
       defmodule ETSFileSystem do
@@ -20,6 +27,12 @@ defmodule Depot.Adapter.ETS do
 
       ETSFileSystem.write("test.txt", "Hello World")
       {:ok, "Hello World"} = ETSFileSystem.read("test.txt")
+
+  ## Configuration Options
+
+  - `:name` - Required. The name of the ETS table
+  - `:eternal` - Optional. When `true`, uses the Eternal library to make the ETS table
+    survive process crashes. Defaults to `false`.
   """
 
   use GenServer
@@ -30,7 +43,7 @@ defmodule Depot.Adapter.ETS do
 
   defmodule Config do
     @moduledoc false
-    defstruct name: nil, table: nil
+    defstruct name: nil, table: nil, eternal: false
   end
 
   defmodule ETSStream do
@@ -75,13 +88,26 @@ defmodule Depot.Adapter.ETS do
 
   @impl GenServer
   def init(%Config{} = config) do
-    table = :ets.new(config.name, [:set, :protected])
+    table =
+      if config.eternal do
+        case Eternal.start_link(config.name, [:set, :protected]) do
+          {:ok, _pid} -> config.name
+          {:error, {:already_started, _pid}} -> config.name
+        end
+      else
+        :ets.new(config.name, [:set, :protected])
+      end
+
     {:ok, %Config{config | table: table}}
   end
 
   @impl Depot.Adapter
   def configure(opts) do
-    config = %Config{name: Keyword.fetch!(opts, :name)}
+    config = %Config{
+      name: Keyword.fetch!(opts, :name),
+      eternal: Keyword.get(opts, :eternal, false)
+    }
+
     {__MODULE__, config}
   end
 

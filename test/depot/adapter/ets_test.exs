@@ -155,4 +155,133 @@ defmodule Depot.Adapter.ETSTest do
       assert {:ok, :missing} = Depot.Adapter.ETS.file_exists(config, "parent_dir/file.txt")
     end
   end
+
+  describe "eternal functionality" do
+    @tag :eternal
+    test "eternal tables survive and persist data across adapter restarts" do
+      table_name = :"eternal_test_#{System.unique_integer([:positive])}"
+
+      # Start the eternal table first
+      {:ok, _eternal_pid} = Eternal.start_link(table_name, [:set, :public])
+
+      # Configure filesystem to use the eternal table
+      eternal_filesystem = Depot.Adapter.ETS.configure(name: table_name, eternal: true)
+
+      # Start first adapter process and write data
+      {:ok, pid1} = Depot.Adapter.ETS.start_link(eternal_filesystem)
+      {_, config} = eternal_filesystem
+
+      :ok = Depot.Adapter.ETS.write(config, "persistent.txt", "This should survive", [])
+      assert {:ok, "This should survive"} = Depot.Adapter.ETS.read(config, "persistent.txt")
+
+      # Stop the adapter process
+      GenServer.stop(pid1, :normal)
+      Process.sleep(10)
+
+      # Verify data is still in the eternal table directly
+      assert [{"persistent.txt", {"This should survive", %{visibility: :private}}}] =
+               :ets.lookup(table_name, "persistent.txt")
+
+      # Start a new adapter process using the same eternal table
+      {:ok, _pid2} = Depot.Adapter.ETS.start_link(eternal_filesystem)
+
+      # Data should still be accessible through the new adapter
+      assert {:ok, "This should survive"} = Depot.Adapter.ETS.read(config, "persistent.txt")
+
+      # Clean up the eternal table
+      Eternal.stop(table_name)
+    end
+
+    @tag :eternal
+    test "eternal tables persist data independently of adapter process" do
+      table_name = :"eternal_independent_#{System.unique_integer([:positive])}"
+
+      # Start eternal table directly 
+      {:ok, _eternal_pid} = Eternal.start_link(table_name, [:set, :public])
+
+      # Insert data directly into the ETS table
+      :ets.insert(table_name, {"direct_key", "direct_value"})
+
+      # Configure filesystem to use the same eternal table
+      eternal_filesystem = Depot.Adapter.ETS.configure(name: table_name, eternal: true)
+
+      # Start and stop the adapter multiple times
+      {:ok, pid1} = Depot.Adapter.ETS.start_link(eternal_filesystem)
+      {_, config} = eternal_filesystem
+
+      # Write via adapter
+      :ok = Depot.Adapter.ETS.write(config, "adapter.txt", "adapter data", [])
+      assert {:ok, "adapter data"} = Depot.Adapter.ETS.read(config, "adapter.txt")
+
+      # Data inserted directly should still be there
+      assert [{"direct_key", "direct_value"}] = :ets.lookup(table_name, "direct_key")
+
+      # Stop adapter
+      GenServer.stop(pid1, :normal)
+      Process.sleep(10)
+
+      # Start new adapter process with same table
+      {:ok, _pid2} = Depot.Adapter.ETS.start_link(eternal_filesystem)
+
+      # Both sets of data should still be accessible
+      assert {:ok, "adapter data"} = Depot.Adapter.ETS.read(config, "adapter.txt")
+      assert [{"direct_key", "direct_value"}] = :ets.lookup(table_name, "direct_key")
+
+      # Clean up
+      Eternal.stop(table_name)
+    end
+
+    @tag :eternal
+    test "non-eternal tables do not survive process termination" do
+      table_name = :"regular_test_#{System.unique_integer([:positive])}"
+
+      # Configure filesystem without eternal (default behavior)
+      regular_filesystem = Depot.Adapter.ETS.configure(name: table_name, eternal: false)
+
+      # Start the filesystem and write data
+      {:ok, pid} = Depot.Adapter.ETS.start_link(regular_filesystem)
+      {_, config} = regular_filesystem
+
+      :ok = Depot.Adapter.ETS.write(config, "temporary.txt", "This will be lost", [])
+      assert {:ok, "This will be lost"} = Depot.Adapter.ETS.read(config, "temporary.txt")
+
+      # Get the actual ETS table reference for verification
+      table_ref = config.table
+
+      # Stop the process normally
+      GenServer.stop(pid, :normal)
+      Process.sleep(10)
+
+      # Verify the table is gone
+      assert :undefined = :ets.info(table_ref)
+
+      # Restart the filesystem - should create a new table
+      {:ok, _new_pid} = Depot.Adapter.ETS.start_link(regular_filesystem)
+
+      # Data should be gone (regular ETS table died with process)
+      assert {:error, :enoent} = Depot.Adapter.ETS.read(config, "temporary.txt")
+    end
+
+    test "eternal configuration defaults to false" do
+      filesystem = Depot.Adapter.ETS.configure(name: :default_test)
+      {_, config} = filesystem
+
+      # Should default to non-eternal
+      assert config.eternal == false
+    end
+
+    test "eternal configuration can be explicitly set to true" do
+      filesystem = Depot.Adapter.ETS.configure(name: :explicit_eternal, eternal: true)
+      {_, config} = filesystem
+
+      assert config.eternal == true
+    end
+
+    test "eternal configuration can be explicitly set to false" do
+      filesystem = Depot.Adapter.ETS.configure(name: :explicit_regular, eternal: false)
+      {_, config} = filesystem
+
+      assert config.eternal == false
+    end
+  end
 end

@@ -64,6 +64,7 @@ defmodule Depot.MixProject do
       {:sweet_xml, "~> 0.6"},
       {:minio_server, "~> 0.4.0", only: [:dev, :test]},
       {:jason, "~> 1.0"},
+      {:eternal, "~> 1.2.2"},
 
       # Development & Test Dependencies
       {:credo, "~> 1.7", only: [:dev, :test]},

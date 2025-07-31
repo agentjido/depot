@@ -562,7 +562,8 @@ defmodule DepotTest do
     test "set_visibility with invalid path", %{tmp_dir: prefix} do
       filesystem = Depot.Adapter.Local.configure(prefix: prefix)
 
-      assert {:error, {:path, :traversal}} = Depot.set_visibility(filesystem, "../invalid.txt", :public)
+      assert {:error, {:path, :traversal}} =
+               Depot.set_visibility(filesystem, "../invalid.txt", :public)
     end
 
     test "visibility with invalid path", %{tmp_dir: prefix} do
