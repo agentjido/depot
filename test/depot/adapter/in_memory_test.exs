@@ -333,7 +333,9 @@ defmodule Depot.Adapter.InMemoryTest do
       content = "Hello World"
       :ok = Depot.write(filesystem, "test.txt", content)
 
-      assert {:ok, %Depot.Stat.File{} = stat} = Depot.Adapter.InMemory.stat(elem(filesystem, 1), "test.txt")
+      assert {:ok, %Depot.Stat.File{} = stat} =
+               Depot.Adapter.InMemory.stat(elem(filesystem, 1), "test.txt")
+
       assert stat.name == "test.txt"
       assert stat.size == byte_size(content)
       assert is_integer(stat.mtime)
@@ -346,7 +348,9 @@ defmodule Depot.Adapter.InMemoryTest do
 
       :ok = Depot.create_directory(filesystem, "test/")
 
-      assert {:ok, %Depot.Stat.Dir{} = stat} = Depot.Adapter.InMemory.stat(elem(filesystem, 1), "test/")
+      assert {:ok, %Depot.Stat.Dir{} = stat} =
+               Depot.Adapter.InMemory.stat(elem(filesystem, 1), "test/")
+
       assert stat.name == "test"
       assert stat.size == 0
       assert is_integer(stat.mtime)
@@ -357,7 +361,8 @@ defmodule Depot.Adapter.InMemoryTest do
       filesystem = Depot.Adapter.InMemory.configure(name: test)
       start_supervised(filesystem)
 
-      assert {:error, %Depot.Errors.FileNotFound{}} = Depot.Adapter.InMemory.stat(elem(filesystem, 1), "missing.txt")
+      assert {:error, %Depot.Errors.FileNotFound{}} =
+               Depot.Adapter.InMemory.stat(elem(filesystem, 1), "missing.txt")
     end
 
     test "access/3 checks file permissions", %{test: test} do
@@ -375,7 +380,8 @@ defmodule Depot.Adapter.InMemoryTest do
       filesystem = Depot.Adapter.InMemory.configure(name: test)
       start_supervised(filesystem)
 
-      assert {:error, %Depot.Errors.FileNotFound{}} = Depot.Adapter.InMemory.access(elem(filesystem, 1), "missing.txt", [:read])
+      assert {:error, %Depot.Errors.FileNotFound{}} =
+               Depot.Adapter.InMemory.access(elem(filesystem, 1), "missing.txt", [:read])
     end
 
     test "append/4 appends to existing file", %{test: test} do
@@ -431,7 +437,8 @@ defmodule Depot.Adapter.InMemoryTest do
       filesystem = Depot.Adapter.InMemory.configure(name: test)
       start_supervised(filesystem)
 
-      assert {:error, %Depot.Errors.FileNotFound{}} = Depot.Adapter.InMemory.truncate(elem(filesystem, 1), "missing.txt", 10)
+      assert {:error, %Depot.Errors.FileNotFound{}} =
+               Depot.Adapter.InMemory.truncate(elem(filesystem, 1), "missing.txt", 10)
     end
 
     test "utime/3 updates modification time", %{test: test} do
@@ -442,7 +449,9 @@ defmodule Depot.Adapter.InMemoryTest do
       new_time = ~U[2023-01-01 12:00:00Z]
       :ok = Depot.Adapter.InMemory.utime(elem(filesystem, 1), "test.txt", new_time)
 
-      assert {:ok, %Depot.Stat.File{mtime: mtime}} = Depot.Adapter.InMemory.stat(elem(filesystem, 1), "test.txt")
+      assert {:ok, %Depot.Stat.File{mtime: mtime}} =
+               Depot.Adapter.InMemory.stat(elem(filesystem, 1), "test.txt")
+
       assert mtime == DateTime.to_unix(new_time, :second)
     end
 
@@ -450,7 +459,12 @@ defmodule Depot.Adapter.InMemoryTest do
       filesystem = Depot.Adapter.InMemory.configure(name: test)
       start_supervised(filesystem)
 
-      assert {:error, %Depot.Errors.FileNotFound{}} = Depot.Adapter.InMemory.utime(elem(filesystem, 1), "missing.txt", DateTime.utc_now())
+      assert {:error, %Depot.Errors.FileNotFound{}} =
+               Depot.Adapter.InMemory.utime(
+                 elem(filesystem, 1),
+                 "missing.txt",
+                 DateTime.utc_now()
+               )
     end
   end
 

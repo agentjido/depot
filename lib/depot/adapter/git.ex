@@ -57,6 +57,7 @@ defmodule Depot.Adapter.Git do
   end
 
   @behaviour Depot.Adapter
+  @behaviour Depot.Adapter.Versioning
 
   @impl Depot.Adapter
   @spec configure(keyword()) :: {__MODULE__, Config.t()}
@@ -351,11 +352,9 @@ defmodule Depot.Adapter.Git do
   @impl Depot.Adapter
   def starts_processes, do: false
 
-  # Git-specific operations
+  # Versioning behaviour implementation
 
-  @doc """
-  Commit any staged changes to the repository.
-  """
+  @impl Depot.Adapter.Versioning
   @spec commit(Config.t(), String.t() | nil, keyword()) :: :ok | {:error, term}
   def commit(config, message \\ nil, _opts \\ []) do
     try do
@@ -390,9 +389,7 @@ defmodule Depot.Adapter.Git do
     end
   end
 
-  @doc """
-  List revisions/commits for a given path.
-  """
+  @impl Depot.Adapter.Versioning
   @spec revisions(Config.t(), String.t(), keyword()) :: {:ok, [Revision.t()]} | {:error, term}
   def revisions(config, path \\ ".", opts \\ []) do
     try do
@@ -436,9 +433,7 @@ defmodule Depot.Adapter.Git do
     }
   end
 
-  @doc """
-  Read a file as it existed at a specific revision.
-  """
+  @impl Depot.Adapter.Versioning
   @spec read_revision(Config.t(), String.t(), String.t(), keyword()) ::
           {:ok, binary()} | {:error, term}
   def read_revision(config, path, sha, _opts \\ []) do
@@ -452,9 +447,7 @@ defmodule Depot.Adapter.Git do
     end
   end
 
-  @doc """
-  Rollback the repository to a previous revision.
-  """
+  @impl Depot.Adapter.Versioning
   @spec rollback(Config.t(), String.t(), keyword()) :: :ok | {:error, term}
   def rollback(config, sha, opts \\ []) do
     try do

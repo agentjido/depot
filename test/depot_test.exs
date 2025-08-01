@@ -786,12 +786,20 @@ defmodule DepotTest do
 
       # Test with invalid paths that should trigger path normalization errors
       invalid_path = "../outside"
-      
+
       assert {:error, %Depot.Errors.PathTraversal{}} = Depot.stat(filesystem, invalid_path)
-      assert {:error, %Depot.Errors.PathTraversal{}} = Depot.access(filesystem, invalid_path, [:read])
-      assert {:error, %Depot.Errors.PathTraversal{}} = Depot.append(filesystem, invalid_path, "content")
-      assert {:error, %Depot.Errors.PathTraversal{}} = Depot.truncate(filesystem, invalid_path, 10)
-      assert {:error, %Depot.Errors.PathTraversal{}} = Depot.utime(filesystem, invalid_path, DateTime.utc_now())
+
+      assert {:error, %Depot.Errors.PathTraversal{}} =
+               Depot.access(filesystem, invalid_path, [:read])
+
+      assert {:error, %Depot.Errors.PathTraversal{}} =
+               Depot.append(filesystem, invalid_path, "content")
+
+      assert {:error, %Depot.Errors.PathTraversal{}} =
+               Depot.truncate(filesystem, invalid_path, 10)
+
+      assert {:error, %Depot.Errors.PathTraversal{}} =
+               Depot.utime(filesystem, invalid_path, DateTime.utc_now())
     end
   end
 end

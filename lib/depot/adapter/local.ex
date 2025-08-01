@@ -384,22 +384,25 @@ defmodule Depot.Adapter.Local do
   @impl Depot.Adapter
   def stat(%Config{} = config, path) do
     path = full_path(config, path)
-    
+
     case File.stat(path, time: :posix) do
       {:ok, stat} ->
-        struct_module = case stat.type do
-          :regular -> Depot.Stat.File
-          :directory -> Depot.Stat.Dir
-          _ -> Depot.Stat.File  # fallback for special files
-        end
-        
-        {:ok, struct!(struct_module,
-          name: Path.basename(path),
-          size: stat.size,
-          mtime: stat.mtime,
-          visibility: visibility_for_mode(config, stat.type, stat.mode)
-        )}
-      
+        struct_module =
+          case stat.type do
+            :regular -> Depot.Stat.File
+            :directory -> Depot.Stat.Dir
+            # fallback for special files
+            _ -> Depot.Stat.File
+          end
+
+        {:ok,
+         struct!(struct_module,
+           name: Path.basename(path),
+           size: stat.size,
+           mtime: stat.mtime,
+           visibility: visibility_for_mode(config, stat.type, stat.mode)
+         )}
+
       {:error, reason} ->
         {:error, convert_file_error(reason, path)}
     end
@@ -408,25 +411,30 @@ defmodule Depot.Adapter.Local do
   @impl Depot.Adapter
   def access(%Config{} = config, path, modes) do
     path = full_path(config, path)
-    
+
     # Convert our modes to Erlang file access modes
-    erlang_modes = 
+    erlang_modes =
       modes
       |> Enum.flat_map(fn
         :read -> [:read]
         :write -> [:write]
       end)
       |> Enum.uniq()
-    
+
     case :file.read_file_info(String.to_charlist(path), [{:time, :posix}]) do
       {:ok, _} ->
         # File exists, now check access
         case :file.read_file_info(String.to_charlist(path), [:read | erlang_modes]) do
-          {:ok, _} -> :ok
-          {:error, :eacces} -> {:error, Errors.PermissionDenied.exception(target_path: path, operation: "access")}
-          {:error, reason} -> {:error, convert_file_error(reason, path)}
+          {:ok, _} ->
+            :ok
+
+          {:error, :eacces} ->
+            {:error, Errors.PermissionDenied.exception(target_path: path, operation: "access")}
+
+          {:error, reason} ->
+            {:error, convert_file_error(reason, path)}
         end
-      
+
       {:error, reason} ->
         {:error, convert_file_error(reason, path)}
     end
@@ -435,7 +443,7 @@ defmodule Depot.Adapter.Local do
   @impl Depot.Adapter
   def append(%Config{} = config, path, contents, opts) do
     path = full_path(config, path)
-    
+
     mode =
       with {:ok, visibility} <- Keyword.fetch(opts, :visibility) do
         mode = config.converter.for_file(config.visibility, visibility)
@@ -456,26 +464,30 @@ defmodule Depot.Adapter.Local do
   @impl Depot.Adapter
   def truncate(%Config{} = config, path, new_size) do
     path = full_path(config, path)
-    
+
     case File.stat(path) do
       {:ok, _} ->
         case :file.open(String.to_charlist(path), [:write, :binary]) do
           {:ok, device} ->
-            result = case :file.position(device, new_size) do
-              {:ok, _} ->
-                case :file.truncate(device) do
-                  :ok -> :ok
-                  {:error, reason} -> {:error, convert_file_error(reason, path)}
-                end
-              {:error, reason} -> {:error, convert_file_error(reason, path)}
-            end
+            result =
+              case :file.position(device, new_size) do
+                {:ok, _} ->
+                  case :file.truncate(device) do
+                    :ok -> :ok
+                    {:error, reason} -> {:error, convert_file_error(reason, path)}
+                  end
+
+                {:error, reason} ->
+                  {:error, convert_file_error(reason, path)}
+              end
+
             :file.close(device)
             result
-          
+
           {:error, reason} ->
             {:error, convert_file_error(reason, path)}
         end
-      
+
       {:error, reason} ->
         {:error, convert_file_error(reason, path)}
     end
@@ -484,15 +496,15 @@ defmodule Depot.Adapter.Local do
   @impl Depot.Adapter
   def utime(%Config{} = config, path, mtime) do
     path = full_path(config, path)
-    
+
     # Convert DateTime to the format expected by :file.change_time 
-    {{year, month, day}, {hour, minute, second}} = 
-      mtime 
+    {{year, month, day}, {hour, minute, second}} =
+      mtime
       |> DateTime.to_naive()
       |> NaiveDateTime.to_erl()
-    
+
     datetime_tuple = {{year, month, day}, {hour, minute, second}}
-    
+
     case :file.change_time(String.to_charlist(path), datetime_tuple, datetime_tuple) do
       :ok -> :ok
       {:error, reason} -> {:error, convert_file_error(reason, path)}

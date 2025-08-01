@@ -448,7 +448,8 @@ defmodule Depot do
       {:ok, %Depot.Stat.File{}} = LocalFileSystem.stat("test.txt")
 
   """
-  @spec stat(filesystem, Path.t()) :: {:ok, %Depot.Stat.File{} | %Depot.Stat.Dir{}} | {:error, term}
+  @spec stat(filesystem, Path.t()) ::
+          {:ok, %Depot.Stat.File{} | %Depot.Stat.Dir{}} | {:error, term}
   def stat({adapter, config}, path) do
     if function_exported?(adapter, :stat, 2) do
       with {:ok, normalized_path} <- Depot.RelativePath.normalize(path) do
@@ -505,7 +506,7 @@ defmodule Depot do
   @doc """
   Append content to a file
 
-  If the file exists, the content is appended to the end. If it doesn't exist, 
+  If the file exists, the content is appended to the end. If it doesn't exist,
   a new file is created with the given content.
 
   ## Examples
@@ -542,7 +543,7 @@ defmodule Depot do
   @doc """
   Truncate a file to a specific size
 
-  Resizes the file to the specified number of bytes. If the new size is larger than 
+  Resizes the file to the specified number of bytes. If the new size is larger than
   the current size, the file is padded with null bytes. If smaller, the file is truncated.
 
   ## Examples
@@ -725,31 +726,46 @@ defmodule Depot do
 
   def chunk(binary, _size), do: [binary]
 
+  # Helper function to map adapters to their versioning modules
+  @spec get_versioning_module(module()) :: module() | nil
+  defp get_versioning_module(Depot.Adapter.Git), do: Depot.Adapter.Git
+  defp get_versioning_module(Depot.Adapter.ETS), do: Depot.Adapter.ETS.Versioning
+  defp get_versioning_module(Depot.Adapter.InMemory), do: Depot.Adapter.InMemory.Versioning
+  defp get_versioning_module(_), do: nil
+
   @doc """
   Commit changes to a version-controlled filesystem.
 
-  Only supported by adapters that implement versioning (like Git adapter).
+  Uses the polymorphic versioning interface to support any adapter that implements
+  versioning functionality (Git, ETS, InMemory).
 
   ## Examples
 
+      # Git adapter
       filesystem = Depot.Adapter.Git.configure(path: "/repo", mode: :manual)
       Depot.write(filesystem, "file.txt", "content")
       :ok = Depot.commit(filesystem, "Add new file")
 
+      # ETS adapter (uses versioning wrapper)
+      filesystem = Depot.Adapter.ETS.configure(name: :test_ets)
+      :ok = Depot.commit(filesystem, "Snapshot")
+
   """
   @spec commit(filesystem, String.t() | nil, keyword()) :: :ok | {:error, term}
   def commit({adapter, config}, message \\ nil, opts \\ []) do
-    if function_exported?(adapter, :commit, 3) do
-      adapter.commit(config, message, opts)
+    with versioning_module when not is_nil(versioning_module) <- get_versioning_module(adapter),
+         true <- function_exported?(versioning_module, :commit, 3) do
+      versioning_module.commit(config, message, opts)
     else
-      {:error, :unsupported}
+      _ -> {:error, :unsupported}
     end
   end
 
   @doc """
   List revisions/commits for a path in a version-controlled filesystem.
 
-  Returns a list of `%Depot.Revision{}` structs ordered by most recent first.
+  Uses the polymorphic versioning interface to support any adapter that implements
+  versioning functionality. Returns a list of revision maps with standardized format.
 
   ## Options
 
@@ -760,48 +776,63 @@ defmodule Depot do
 
   ## Examples
 
+      # Git adapter
       filesystem = Depot.Adapter.Git.configure(path: "/repo")
       {:ok, revisions} = Depot.revisions(filesystem, "file.txt", limit: 10)
 
+      # ETS adapter
+      filesystem = Depot.Adapter.ETS.configure(name: :test_ets)
+      {:ok, revisions} = Depot.revisions(filesystem, "file.txt")
+
   """
-  @spec revisions(filesystem, Path.t(), keyword()) :: {:ok, [Depot.Revision.t()]} | {:error, term}
+  @spec revisions(filesystem, Path.t(), keyword()) ::
+          {:ok, [map() | Depot.Revision.t()]} | {:error, term}
   def revisions({adapter, config}, path \\ ".", opts \\ []) do
-    if function_exported?(adapter, :revisions, 3) do
-      with {:ok, normalized_path} <- Depot.RelativePath.normalize(path) do
-        adapter.revisions(config, normalized_path, opts)
-      else
-        {:error, reason} -> {:error, convert_path_error(reason, path)}
-      end
+    with versioning_module when not is_nil(versioning_module) <- get_versioning_module(adapter),
+         true <- function_exported?(versioning_module, :revisions, 3),
+         {:ok, normalized_path} <- Depot.RelativePath.normalize(path) do
+      versioning_module.revisions(config, normalized_path, opts)
     else
-      {:error, :unsupported}
+      {:error, reason} -> {:error, convert_path_error(reason, path)}
+      _ -> {:error, :unsupported}
     end
   end
 
   @doc """
   Read a file as it existed at a specific revision.
 
+  Uses the polymorphic versioning interface to support any adapter that implements
+  versioning functionality.
+
   ## Examples
 
+      # Git adapter
       filesystem = Depot.Adapter.Git.configure(path: "/repo")
       {:ok, content} = Depot.read_revision(filesystem, "file.txt", "abc123")
+
+      # ETS adapter
+      filesystem = Depot.Adapter.ETS.configure(name: :test_ets)
+      {:ok, content} = Depot.read_revision(filesystem, "file.txt", "version_id")
 
   """
   @spec read_revision(filesystem, Path.t(), String.t(), keyword()) ::
           {:ok, binary()} | {:error, term}
-  def read_revision({adapter, config}, path, sha, opts \\ []) do
-    if function_exported?(adapter, :read_revision, 4) do
-      with {:ok, normalized_path} <- Depot.RelativePath.normalize(path) do
-        adapter.read_revision(config, normalized_path, sha, opts)
-      else
-        {:error, reason} -> {:error, convert_path_error(reason, path)}
-      end
+  def read_revision({adapter, config}, path, revision, opts \\ []) do
+    with versioning_module when not is_nil(versioning_module) <- get_versioning_module(adapter),
+         true <- function_exported?(versioning_module, :read_revision, 4),
+         {:ok, normalized_path} <- Depot.RelativePath.normalize(path) do
+      versioning_module.read_revision(config, normalized_path, revision, opts)
     else
-      {:error, :unsupported}
+      {:error, reason} -> {:error, convert_path_error(reason, path)}
+      _ -> {:error, :unsupported}
     end
   end
 
   @doc """
   Rollback the filesystem to a previous revision.
+
+  Uses the polymorphic versioning interface to support any adapter that implements
+  versioning functionality.
 
   ## Options
 
@@ -809,16 +840,22 @@ defmodule Depot do
 
   ## Examples
 
+      # Git adapter - full rollback
       filesystem = Depot.Adapter.Git.configure(path: "/repo")
       :ok = Depot.rollback(filesystem, "abc123")
 
+      # ETS adapter - single file rollback
+      filesystem = Depot.Adapter.ETS.configure(name: :test_ets)
+      :ok = Depot.rollback(filesystem, "version_id", path: "file.txt")
+
   """
   @spec rollback(filesystem, String.t(), keyword()) :: :ok | {:error, term}
-  def rollback({adapter, config}, sha, opts \\ []) do
-    if function_exported?(adapter, :rollback, 3) do
-      adapter.rollback(config, sha, opts)
+  def rollback({adapter, config}, revision, opts \\ []) do
+    with versioning_module when not is_nil(versioning_module) <- get_versioning_module(adapter),
+         true <- function_exported?(versioning_module, :rollback, 3) do
+      versioning_module.rollback(config, revision, opts)
     else
-      {:error, :unsupported}
+      _ -> {:error, :unsupported}
     end
   end
 end

@@ -14,6 +14,19 @@ defmodule Depot.Adapter.GitHub do
         auth: %{access_token: "github_pat_token"}
       )
 
+  ## Application Configuration
+
+  You can also configure GitHub credentials in your application config:
+
+      # config/config.exs
+      config :depot, :github,
+        access_token: "github_pat_token",
+        name: "Your Name",
+        email: "your@email.com"
+
+  When configured this way, the adapter will automatically use these credentials
+  as defaults if not explicitly provided in the configure/1 call.
+
   ## Authentication
 
   Supports several authentication methods:
@@ -73,7 +86,7 @@ defmodule Depot.Adapter.GitHub do
     owner = Keyword.fetch!(opts, :owner)
     repo = Keyword.fetch!(opts, :repo)
     ref = Keyword.get(opts, :ref, "main")
-    auth = Keyword.get(opts, :auth)
+    auth = Keyword.get(opts, :auth) || get_config_auth()
 
     client =
       case auth do
@@ -82,11 +95,7 @@ defmodule Depot.Adapter.GitHub do
       end
 
     commit_info =
-      Keyword.get(opts, :commit_info, %{
-        message: "Update via Depot",
-        committer: %{name: "Depot", email: "depot@example.com"},
-        author: %{name: "Depot", email: "depot@example.com"}
-      })
+      Keyword.get(opts, :commit_info) || get_config_commit_info()
 
     config = %__MODULE__{
       owner: owner,
@@ -285,6 +294,33 @@ defmodule Depot.Adapter.GitHub do
   @impl true
   def copy(_source_config, _source, _dest_config, _dest, _opts) do
     {:error, "Cross-adapter copying not supported for GitHub adapter"}
+  end
+
+  # Get authentication from application config
+  defp get_config_auth do
+    case Application.get_env(:depot, :github, []) do
+      config when is_list(config) ->
+        case Keyword.get(config, :access_token) do
+          nil -> nil
+          token -> %{access_token: token}
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  # Get commit info from application config
+  defp get_config_commit_info do
+    config = Application.get_env(:depot, :github, [])
+    name = Keyword.get(config, :name, "Depot")
+    email = Keyword.get(config, :email, "depot@example.com")
+
+    %{
+      message: "Update via Depot",
+      committer: %{name: name, email: email},
+      author: %{name: name, email: email}
+    }
   end
 
   # Convert GitHub API content response to Depot.Stat
