@@ -251,6 +251,8 @@ defmodule Depot.Adapter.InMemory do
     Agent.update(Depot.Registry.via(__MODULE__, config.name), fn state ->
       put_in(state, accessor(path, directory), directory)
     end)
+
+    :ok
   end
 
   @impl Depot.Adapter
